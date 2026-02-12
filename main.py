@@ -359,7 +359,7 @@ class Application:
         else:
             print(f"  [WARN] No {provider} API token configured – skipping auth test")
 
-        # Browser provider – Profile listing
+        # Browser provider – Profile listing (remote API, not required for engine)
         try:
             profiles = self.browser_client.list_profiles()
             if isinstance(profiles, dict):
@@ -373,9 +373,10 @@ class Application:
                 count = len(profiles)
             else:
                 count = "?"
-            print(f"  [OK] {provider} API reachable – {count} profile(s)")
+            print(f"  [OK] {provider} remote API – {count} profile(s)")
         except Exception as exc:
-            print(f"  [FAIL] {provider} API: {exc}")
+            print(f"  [WARN] {provider} remote API: {exc}")
+            print(f"         (The engine uses the local API and may still work fine)")
 
         # Google Drive
         if self.drive_client:

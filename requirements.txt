@@ -1,6 +1,7 @@
 # Core
 selenium==4.16.0
 undetected-chromedriver==3.5.4
+webdriver-manager>=4.0.0
 
 # Google Drive
 google-api-python-client==2.108.0
