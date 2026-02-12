@@ -4,7 +4,18 @@
 # Default timezone for all schedules (IANA timezone name)
 timezone: "America/New_York"
 
-# Dolphin Anty Local API connection
+# Browser provider: "gologin" (default) or "dolphin_anty"
+browser_provider: "gologin"
+
+# GoLogin Local API connection (desktop app must be running)
+# Default port: 36912. API token from GoLogin dashboard (Settings > API).
+gologin:
+  host: "localhost"
+  port: 36912
+  # API token (can also be set via GOLOGIN_TOKEN env var)
+  api_token: ""
+
+# Dolphin Anty Local API connection (alternative provider)
 dolphin_anty:
   host: "localhost"
   port: 3001

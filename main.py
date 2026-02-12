@@ -3,9 +3,13 @@
 
 Usage:
     python main.py              Start the automation (all enabled accounts)
+    python main.py --setup      Interactive first-time setup wizard
+    python main.py --add-account  Add a new Twitter account interactively
     python main.py --status     Show account status dashboard
-    python main.py --test       Run a connectivity test against Dolphin Anty
+    python main.py --test       Run a connectivity test against the browser provider
 """
+
+from __future__ import annotations
 
 import argparse
 import signal
@@ -17,25 +21,22 @@ from pathlib import Path
 
 from loguru import logger
 
-from src.core.config_loader import ConfigLoader
-from src.core.logger import setup_logging, get_account_logger
-from src.core.database import Database
-from src.dolphin_anty.api_client import DolphinAntyClient
-from src.dolphin_anty.profile_manager import ProfileManager
-from src.google_drive.drive_client import DriveClient
-from src.google_drive.file_monitor import FileMonitor
-from src.google_drive.media_handler import MediaHandler
-from src.twitter.automation import TwitterAutomation
-from src.twitter.poster import TwitterPoster
-from src.twitter.retweeter import TwitterRetweeter
-from src.scheduler.job_manager import JobManager
-from src.scheduler.queue_handler import QueueHandler, Task
-
 
 class Application:
     """Main application that wires all components together."""
 
     def __init__(self):
+        # Deferred imports so that --setup/--add-account work without
+        # heavy dependencies like selenium being installed.
+        from src.core.config_loader import ConfigLoader
+        from src.core.logger import setup_logging, get_account_logger
+        from src.core.database import Database
+        from src.dolphin_anty.profile_manager import ProfileManager
+        from src.google_drive.drive_client import DriveClient
+        from src.google_drive.file_monitor import FileMonitor
+        from src.scheduler.job_manager import JobManager
+        from src.scheduler.queue_handler import QueueHandler
+
         self.config = ConfigLoader()
         self.db = Database(str(self.config.resolve_path(self.config.database_path)))
 
@@ -47,21 +48,17 @@ class Application:
             log_dir=str(self.config.resolve_path("data/logs")),
         )
 
-        # Dolphin Anty
-        da_cfg = self.config.dolphin_anty
-        self.dolphin_client = DolphinAntyClient(
-            host=da_cfg.get("host", "localhost"),
-            port=da_cfg.get("port", 3001),
-            api_token=da_cfg.get("api_token", ""),
-        )
+        # Browser provider (GoLogin or Dolphin Anty)
+        self.provider_name = self.config.browser_provider
+        self.browser_client = self._create_browser_client()
         self.profile_manager = ProfileManager(
-            self.dolphin_client, self.config.browser
+            self.browser_client, self.config.browser
         )
 
         # Google Drive
         gd_cfg = self.config.google_drive
         creds_path = str(self.config.resolve_path(gd_cfg.get("credentials_file", "")))
-        self.drive_client: DriveClient | None = None
+        self.drive_client = None
         if Path(creds_path).exists():
             self.drive_client = DriveClient(creds_path)
             self.file_monitor = FileMonitor(
@@ -85,19 +82,54 @@ class Application:
         self.queue = QueueHandler()
 
         # Per-account components (populated during setup)
-        self._automations: dict[str, TwitterAutomation] = {}
-        self._posters: dict[str, TwitterPoster] = {}
-        self._retweeters: dict[str, TwitterRetweeter] = {}
+        self._automations: dict = {}
+        self._posters: dict = {}
+        self._retweeters: dict = {}
 
         self._shutdown = False
+
+    # ------------------------------------------------------------------
+    # Browser provider factory
+    # ------------------------------------------------------------------
+    def _create_browser_client(self):
+        """Instantiate the browser provider client based on configuration."""
+        if self.provider_name == "gologin":
+            from src.gologin.api_client import GoLoginClient
+
+            cfg = self.config.gologin
+            return GoLoginClient(
+                host=cfg.get("host", "localhost"),
+                port=cfg.get("port", 36912),
+                api_token=cfg.get("api_token", ""),
+            )
+        elif self.provider_name == "dolphin_anty":
+            from src.dolphin_anty.api_client import DolphinAntyClient
+
+            cfg = self.config.dolphin_anty
+            return DolphinAntyClient(
+                host=cfg.get("host", "localhost"),
+                port=cfg.get("port", 3001),
+                api_token=cfg.get("api_token", ""),
+            )
+        else:
+            raise ValueError(
+                f"Unknown browser_provider '{self.provider_name}'. "
+                "Use 'gologin' or 'dolphin_anty' in settings.yaml."
+            )
 
     # ------------------------------------------------------------------
     # Setup
     # ------------------------------------------------------------------
     def setup_account(self, acct: dict) -> bool:
         """Initialise browser, Selenium, and Twitter components for one account."""
+        from src.core.logger import get_account_logger
+        from src.twitter.automation import TwitterAutomation
+        from src.twitter.poster import TwitterPoster
+        from src.twitter.retweeter import TwitterRetweeter
+
         name = acct["name"]
-        profile_id = acct["twitter"]["dolphin_profile_id"]
+        twitter_cfg = acct["twitter"]
+        profile_id = twitter_cfg.get("profile_id") or twitter_cfg.get("dolphin_profile_id")
         acct_logger = get_account_logger(name, str(self.config.resolve_path("data/logs")))
 
         try:
@@ -110,11 +142,11 @@ class Application:
         automation = TwitterAutomation(driver, self.config.delays)
         self._automations[name] = automation
 
-        # Check login state – Dolphin Anty profiles should already be logged in
+        # Check login state – profiles should already be logged in
         if not automation.is_logged_in():
             logger.warning(
                 f"[{name}] Browser is NOT logged in to Twitter. "
-                "Please log in manually via Dolphin Anty first."
+                f"Please log in manually via {self.provider_name} first."
             )
             self.db.update_account_status(
                 name, status="error", error_message="Not logged in"
@@ -174,6 +206,7 @@ class Application:
             )
 
     def _enqueue_task(self, account_name: str, task_type: str, callback) -> None:
+        from src.scheduler.queue_handler import Task
         task = Task(account_name=account_name, task_type=task_type, callback=callback)
         self.queue.submit(task)
 
@@ -188,18 +221,19 @@ class Application:
 
         logger.info(f"Starting BunnyTweets with {len(accounts)} enabled account(s)")
 
-        # Authenticate with Dolphin Anty local API (required before any profile ops)
-        if self.dolphin_client.api_token:
-            if not self.dolphin_client.authenticate():
+        # Authenticate with browser provider API (required before any profile ops)
+        logger.info(f"Browser provider: {self.provider_name}")
+        if self.browser_client.api_token:
+            if not self.browser_client.authenticate():
                 logger.error(
-                    "Dolphin Anty authentication failed. "
-                    "Check your API token in settings.yaml or DOLPHIN_ANTY_TOKEN env var."
+                    f"{self.provider_name} authentication failed. "
+                    "Check your API token in settings.yaml or the corresponding env var."
                 )
                 sys.exit(1)
         else:
             logger.warning(
-                "No Dolphin Anty API token configured. "
-                "The local API may reject requests with 401."
+                f"No {self.provider_name} API token configured. "
+                "The local API may reject requests."
             )
 
         # Set up each account
@@ -308,28 +342,32 @@ class Application:
     # Connection test
     # ------------------------------------------------------------------
     def test_connections(self) -> None:
-        print("\n  Testing connections...\n")
+        provider = self.provider_name
+        print(f"\n  Testing connections (browser provider: {provider})...\n")
 
-        # Dolphin Anty – Authentication
-        if self.dolphin_client.api_token:
+        # Browser provider – Authentication
+        if self.browser_client.api_token:
             try:
-                ok = self.dolphin_client.authenticate()
+                ok = self.browser_client.authenticate()
                 if ok:
-                    print("  [OK] Dolphin Anty authentication successful")
+                    print(f"  [OK] {provider} authentication successful")
                 else:
-                    print("  [FAIL] Dolphin Anty authentication returned failure")
+                    print(f"  [FAIL] {provider} authentication returned failure")
             except Exception as exc:
-                print(f"  [FAIL] Dolphin Anty authentication: {exc}")
+                print(f"  [FAIL] {provider} authentication: {exc}")
         else:
-            print("  [WARN] No Dolphin Anty API token configured – skipping auth test")
+            print(f"  [WARN] No {provider} API token configured – skipping auth test")
 
-        # Dolphin Anty – Profile listing
+        # Browser provider – Profile listing
         try:
-            profiles = self.dolphin_client.list_profiles()
-            count = profiles.get("data", {}).get("total", len(profiles.get("data", [])))
-            print(f"  [OK] Dolphin Anty API reachable – {count} profile(s)")
+            profiles = self.browser_client.list_profiles()
+            if isinstance(profiles, dict):
+                count = profiles.get("data", {}).get("total", len(profiles.get("data", profiles.get("profiles", []))))
+            else:
+                count = "?"
+            print(f"  [OK] {provider} API reachable – {count} profile(s)")
         except Exception as exc:
-            print(f"  [FAIL] Dolphin Anty API: {exc}")
+            print(f"  [FAIL] {provider} API: {exc}")
 
         # Google Drive
         if self.drive_client:
@@ -349,9 +387,22 @@ class Application:
 
 def main():
     parser = argparse.ArgumentParser(description="BunnyTweets – Twitter Automation")
+    parser.add_argument("--setup", action="store_true", help="Interactive first-time setup wizard")
+    parser.add_argument("--add-account", action="store_true", help="Add a new Twitter account interactively")
     parser.add_argument("--status", action="store_true", help="Show account status")
     parser.add_argument("--test", action="store_true", help="Test connections")
     args = parser.parse_args()
+
+    # Setup commands run before Application() since config files may not exist
+    if args.setup:
+        from src.core.setup_wizard import run_setup
+        run_setup()
+        return
+
+    if args.add_account:
+        from src.core.setup_wizard import run_add_account
+        run_add_account()
+        return
 
     app = Application()
 

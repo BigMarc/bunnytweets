@@ -1,5 +1,7 @@
 """Thread-safe task queue for asynchronous job execution."""
 
+from __future__ import annotations
+
 import threading
 from concurrent.futures import ThreadPoolExecutor, Future
 from dataclasses import dataclass, field

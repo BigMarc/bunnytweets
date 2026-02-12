@@ -1,5 +1,7 @@
 """APScheduler-based job manager that sets up cron and interval jobs per account."""
 
+from __future__ import annotations
+
 import random
 from datetime import datetime, timedelta
 from enum import Enum
@@ -144,7 +146,8 @@ class JobManager:
         logger.info("Scheduler started")
 
     def shutdown(self) -> None:
-        self.scheduler.shutdown(wait=False)
+        if self.scheduler.running:
+            self.scheduler.shutdown(wait=False)
         logger.info("Scheduler shut down")
 
     def get_jobs_summary(self) -> list[dict]:

@@ -8,9 +8,10 @@ accounts:
 
     twitter:
       username: "@your_handle"
-      # Dolphin Anty browser profile ID for this account.
-      # Find it in Dolphin Anty UI or via API: GET http://localhost:3001/v1.0/browser_profiles
-      dolphin_profile_id: "your_dolphin_profile_id"
+      # Browser profile ID from your GoLogin or Dolphin Anty app.
+      # GoLogin: find in GoLogin app or via API: GET https://api.gologin.com/browser/v2
+      # Dolphin Anty: find via API: GET http://localhost:3001/v1.0/browser_profiles
+      profile_id: "your_profile_id"
 
     google_drive:
       # The Google Drive folder ID containing media for this account.
@@ -58,7 +59,7 @@ accounts:
 
     twitter:
       username: "@second_handle"
-      dolphin_profile_id: "another_dolphin_profile_id"
+      profile_id: "another_profile_id"
 
     google_drive:
       folder_id: "1XYZabc..."
