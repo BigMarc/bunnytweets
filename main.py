@@ -3,7 +3,7 @@
 
 Usage:
     python main.py              Start the automation (all enabled accounts)
-    python main.py --web        Launch the web dashboard (http://localhost:5000)
+    python main.py --web        Launch the web dashboard (http://localhost:8080)
     python main.py --setup      Interactive first-time setup wizard
     python main.py --add-account  Add a new Twitter account interactively
     python main.py --status     Show account status dashboard
@@ -396,7 +396,7 @@ class Application:
 def main():
     parser = argparse.ArgumentParser(description="BunnyTweets – Twitter Automation")
     parser.add_argument("--web", action="store_true", help="Launch the web dashboard")
-    parser.add_argument("--port", type=int, default=5000, help="Web dashboard port (default: 5000)")
+    parser.add_argument("--port", type=int, default=8080, help="Web dashboard port (default: 8080)")
     parser.add_argument("--setup", action="store_true", help="Interactive first-time setup wizard")
     parser.add_argument("--add-account", action="store_true", help="Add a new Twitter account interactively")
     parser.add_argument("--status", action="store_true", help="Show account status")
