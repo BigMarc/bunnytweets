@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options as ChromeOptions
+from selenium.webdriver.chrome.service import Service as ChromeService
 from loguru import logger
+
+from src.dolphin_anty.chromedriver_resolver import resolve_chromedriver
 
 
 class ProfileManager:
@@ -51,14 +54,25 @@ class ProfileManager:
             f"Profile {profile_id} started – debug port={port}, ws={ws_endpoint}"
         )
 
-        # Connect Selenium via the Chrome DevTools debug port
+        # Resolve a ChromeDriver matching the browser's Chrome version
+        chromedriver_path, chrome_major = resolve_chromedriver(port)
+
         options = ChromeOptions()
         options.add_experimental_option("debuggerAddress", f"127.0.0.1:{port}")
+
+        if chrome_major:
+            options.browser_version = chrome_major
+
+        service_kwargs: dict = {}
+        if chromedriver_path:
+            service_kwargs["executable_path"] = chromedriver_path
+            logger.debug(f"Using resolved ChromeDriver: {chromedriver_path}")
+        service = ChromeService(**service_kwargs)
 
         implicit_wait = self.browser_settings.get("implicit_wait", 10)
         page_load_timeout = self.browser_settings.get("page_load_timeout", 30)
 
-        driver = webdriver.Chrome(options=options)
+        driver = webdriver.Chrome(options=options, service=service)
         driver.implicitly_wait(implicit_wait)
         driver.set_page_load_timeout(page_load_timeout)
 
