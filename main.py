@@ -188,6 +188,20 @@ class Application:
 
         logger.info(f"Starting BunnyTweets with {len(accounts)} enabled account(s)")
 
+        # Authenticate with Dolphin Anty local API (required before any profile ops)
+        if self.dolphin_client.api_token:
+            if not self.dolphin_client.authenticate():
+                logger.error(
+                    "Dolphin Anty authentication failed. "
+                    "Check your API token in settings.yaml or DOLPHIN_ANTY_TOKEN env var."
+                )
+                sys.exit(1)
+        else:
+            logger.warning(
+                "No Dolphin Anty API token configured. "
+                "The local API may reject requests with 401."
+            )
+
         # Set up each account
         active_accounts = []
         for acct in accounts:
@@ -296,7 +310,20 @@ class Application:
     def test_connections(self) -> None:
         print("\n  Testing connections...\n")
 
-        # Dolphin Anty
+        # Dolphin Anty – Authentication
+        if self.dolphin_client.api_token:
+            try:
+                ok = self.dolphin_client.authenticate()
+                if ok:
+                    print("  [OK] Dolphin Anty authentication successful")
+                else:
+                    print("  [FAIL] Dolphin Anty authentication returned failure")
+            except Exception as exc:
+                print(f"  [FAIL] Dolphin Anty authentication: {exc}")
+        else:
+            print("  [WARN] No Dolphin Anty API token configured – skipping auth test")
+
+        # Dolphin Anty – Profile listing
         try:
             profiles = self.dolphin_client.list_profiles()
             count = profiles.get("data", {}).get("total", len(profiles.get("data", [])))
