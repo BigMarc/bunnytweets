@@ -80,7 +80,8 @@ Before installing BunnyTweets, make sure you have:
 ### Step 1: Clone the Repository
 
 ```bash
-git clone <repo-url> /opt/bunnytweets
+# Repository klonen
+git clone https://github.com/BigMarc/bunnytweets /opt/bunnytweets
 cd /opt/bunnytweets
 ```
 
