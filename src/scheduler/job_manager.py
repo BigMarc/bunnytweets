@@ -17,6 +17,7 @@ class JobType(Enum):
     DRIVE_SYNC = "drive_sync"
     HEALTH_CHECK = "health_check"
     HUMAN_SIMULATION = "human_simulation"
+    CTA_COMMENT = "cta_comment"
 
 
 class JobManager:
@@ -172,6 +173,22 @@ class JobManager:
                 )
                 logger.info(f"Scheduled simulation job: {job_id} at {h:02d}:{m:02d}")
                 remaining -= 1
+
+    # ------------------------------------------------------------------
+    # CTA comment check
+    # ------------------------------------------------------------------
+    def add_cta_check_job(self, callback, interval_minutes: int = 5) -> None:
+        """Periodically check for accounts with cta_pending and run their CTA comment."""
+        job_id = "cta_comment_check"
+        self.scheduler.add_job(
+            callback,
+            trigger="interval",
+            minutes=interval_minutes,
+            id=job_id,
+            replace_existing=True,
+            name="CTA comment check",
+        )
+        logger.info(f"Scheduled CTA comment check every {interval_minutes} minutes")
 
     # ------------------------------------------------------------------
     # Health check

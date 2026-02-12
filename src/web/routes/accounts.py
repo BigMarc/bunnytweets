@@ -9,6 +9,27 @@ from flask import (
 bp = Blueprint("accounts", __name__)
 
 
+def _get_form_context(state, acct=None):
+    """Build extra context for the account form (categories, CTAs)."""
+    categories = state.db.get_all_categories()
+    all_cats = [{"id": c.id, "name": c.name} for c in categories]
+
+    selected = []
+    if acct:
+        selected = acct.get("posting", {}).get("title_categories", [])
+
+    cta_texts = []
+    if acct and acct.get("name"):
+        ctas = state.db.get_cta_texts(acct["name"])
+        cta_texts = [{"id": c.id, "text": c.text} for c in ctas]
+
+    return {
+        "all_categories": all_cats,
+        "selected_categories": selected,
+        "cta_texts": cta_texts,
+    }
+
+
 def _get_accounts_data(state):
     """Load raw accounts dict from config."""
     return {"accounts": list(state.config.accounts)}
@@ -33,7 +54,8 @@ def index():
 def add_form():
     state = current_app.config["APP_STATE"]
     provider = state.config.browser_provider
-    return render_template("account_form.html", account=None, provider=provider, edit=False)
+    ctx = _get_form_context(state)
+    return render_template("account_form.html", account=None, provider=provider, edit=False, **ctx)
 
 
 @bp.route("/add", methods=["POST"])
@@ -61,7 +83,8 @@ def edit_form(name):
     if not acct:
         flash(f"Account '{name}' not found.", "danger")
         return redirect(url_for("accounts.index"))
-    return render_template("account_form.html", account=acct, provider=provider, edit=True)
+    ctx = _get_form_context(state, acct)
+    return render_template("account_form.html", account=acct, provider=provider, edit=True, **ctx)
 
 
 @bp.route("/<name>/edit", methods=["POST"])
@@ -116,6 +139,27 @@ def toggle(name):
     return jsonify({"success": True, "enabled": not current, "message": f"Account {new_state}"})
 
 
+@bp.route("/<name>/cta/add", methods=["POST"])
+def add_cta(name):
+    state = current_app.config["APP_STATE"]
+    data = request.get_json(silent=True) or {}
+    text = data.get("text", "").strip()
+    if not text:
+        return jsonify({"success": False, "message": "CTA text is required"})
+
+    cta = state.db.add_cta_text(name, text)
+    return jsonify({"success": True, "id": cta.id, "message": "CTA text added"})
+
+
+@bp.route("/<name>/cta/<int:cta_id>/delete", methods=["POST"])
+def delete_cta(name, cta_id):
+    state = current_app.config["APP_STATE"]
+    ok = state.db.delete_cta_text(cta_id)
+    if ok:
+        return jsonify({"success": True, "message": "CTA text deleted"})
+    return jsonify({"success": False, "message": "CTA text not found"})
+
+
 def _find_account(state, name):
     for acct in state.config.accounts:
         if acct.get("name") == name:
@@ -164,6 +208,12 @@ def _parse_account_form(form):
                 schedule.append({"time": t})
         acct["posting"]["schedule"] = schedule or [{"time": "09:00"}, {"time": "15:00"}, {"time": "20:00"}]
         acct["posting"]["default_text"] = form.get("posting.default_text", "")
+
+    # Title categories (multi-select checkboxes — always include Global)
+    selected_cats = form.getlist("title_category")
+    # Deduplicate and ensure Global is always present
+    cat_set = set(selected_cats) | {"Global"}
+    acct["posting"]["title_categories"] = sorted(cat_set)
 
     # Retweeting
     rt_enabled = "retweeting.enabled" in form

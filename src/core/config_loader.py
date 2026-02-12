@@ -126,6 +126,10 @@ class ConfigLoader:
         return self.settings.get("logging", {})
 
     @property
+    def discord(self) -> dict:
+        return self.settings.get("discord", {})
+
+    @property
     def database_path(self) -> str:
         return self.settings.get("database", {}).get(
             "path", "data/database/automation.db"

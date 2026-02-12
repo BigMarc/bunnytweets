@@ -23,6 +23,19 @@ class FileMonitor:
         self.download_dir = Path(download_dir)
         self.download_dir.mkdir(parents=True, exist_ok=True)
 
+    def list_all_files(
+        self,
+        account_name: str,
+        folder_id: str,
+        file_types: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return ALL files in the folder (for content rotation)."""
+        all_files = self.drive.list_files(folder_id, file_types=file_types)
+        logger.debug(
+            f"[{account_name}] Drive folder has {len(all_files)} file(s)"
+        )
+        return all_files
+
     def check_for_new_files(
         self,
         account_name: str,

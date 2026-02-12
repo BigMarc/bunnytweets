@@ -36,6 +36,11 @@
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link {% if '/generator' in request.path %}active{% endif %}" href="/generator">
+                            <i class="bi bi-chat-quote me-1"></i>Titles
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link {% if '/logs' in request.path %}active{% endif %}" href="/logs">
                             <i class="bi bi-journal-text me-1"></i>Logs
                         </a>

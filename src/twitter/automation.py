@@ -128,7 +128,12 @@ class TwitterAutomation:
     # Posting
     # ------------------------------------------------------------------
     def compose_tweet(self, text: str = "", media_files: list[Path] | None = None) -> bool:
-        """Open the compose dialog, fill in text and media, and send."""
+        """Open the compose dialog, fill in text and media, and send.
+
+        Returns True on success.  After a successful post the browser stays on
+        the home feed — callers can use ``get_latest_tweet_urls`` to grab the
+        URL of the just-posted tweet if needed.
+        """
         self.navigate_home()
         self._action_delay()
 
@@ -221,6 +226,46 @@ class TwitterAutomation:
             except NoSuchElementException:
                 logger.error(f"Failed to retweet {tweet_url} – button not found")
                 return False
+
+    # ------------------------------------------------------------------
+    # Commenting / Replying to a tweet
+    # ------------------------------------------------------------------
+    def reply_to_tweet(self, tweet_url: str, text: str) -> bool:
+        """Navigate to a tweet and post a reply/comment."""
+        self.navigate_to(tweet_url)
+        self._action_delay()
+
+        try:
+            # Click on the reply textarea
+            reply_box = WebDriverWait(self.driver, 15).until(
+                EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, 'div[data-testid="tweetTextarea_0"]')
+                )
+            )
+            reply_box.click()
+            self._action_delay()
+
+            # Type the reply text
+            self._human_type(reply_box, text)
+            self._action_delay()
+
+            # Click the reply button
+            reply_btn = WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable(
+                    (By.CSS_SELECTOR, 'button[data-testid="tweetButtonInline"]')
+                )
+            )
+            reply_btn.click()
+            logger.info(f"Replied to {tweet_url}")
+            self._page_delay()
+            return True
+
+        except (TimeoutException, NoSuchElementException) as exc:
+            logger.error(f"Failed to reply to {tweet_url}: {exc}")
+            return False
+        except ElementClickInterceptedException as exc:
+            logger.error(f"Could not click reply button on {tweet_url}: {exc}")
+            return False
 
     # ------------------------------------------------------------------
     # Fetching tweets from a profile
