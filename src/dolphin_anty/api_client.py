@@ -71,13 +71,17 @@ class DolphinAntyClient:
         url = f"{self.base_url}{path}"
         logger.debug(f"GET {url} params={params}")
         resp = requests.get(url, headers=self.headers, params=params, timeout=30)
+        if not resp.ok:
+            logger.error(f"GET {path} failed ({resp.status_code}): {resp.text}")
         resp.raise_for_status()
         return resp.json()
 
     def _post(self, path: str, json_data: dict | None = None) -> dict:
         url = f"{self.base_url}{path}"
-        logger.debug(f"POST {url}")
+        logger.debug(f"POST {url} body={json_data}")
         resp = requests.post(url, headers=self.headers, json=json_data, timeout=30)
+        if not resp.ok:
+            logger.error(f"POST {path} failed ({resp.status_code}): {resp.text}")
         resp.raise_for_status()
         return resp.json()
 
@@ -91,7 +95,8 @@ class DolphinAntyClient:
     def start_profile(self, profile_id: str, headless: bool = False) -> dict:
         """Start a browser profile with DevTools Protocol enabled.
 
-        Endpoint: GET /browser_profiles/{profile_id}/start?automation=1[&headless=1]
+        Endpoint: POST /browser_profiles/{profile_id}/start
+        Body: {"automation": true[, "headless": true]}
 
         Returns dict with:
           - success: bool
@@ -99,11 +104,11 @@ class DolphinAntyClient:
           - automation.wsEndpoint
         """
         logger.info(f"Starting Dolphin Anty profile {profile_id} (headless={headless})")
-        params: dict[str, int] = {"automation": 1}
+        json_data: dict = {"automation": True}
         if headless:
-            params["headless"] = 1
+            json_data["headless"] = True
 
-        data = self._get(f"/browser_profiles/{profile_id}/start", params=params)
+        data = self._post(f"/browser_profiles/{profile_id}/start", json_data=json_data)
 
         if not data.get("success", False):
             raise RuntimeError(f"Failed to start profile {profile_id}: {data}")

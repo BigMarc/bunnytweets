@@ -12,8 +12,8 @@ class ProfileManager:
 
     Workflow per the Dolphin Anty docs:
       1. ``DolphinAntyClient.authenticate()`` – POST /auth/login-with-token
-      2. ``start_profile()`` – GET /browser_profiles/{id}/start?automation=1
-         returns ``{ automation: { port, wsEndpoint } }``
+      2. ``start_profile()`` – POST /browser_profiles/{id}/start
+         body: {"automation": true}, returns ``{ automation: { port, wsEndpoint } }``
       3. Connect Selenium to ``127.0.0.1:{port}`` via Chrome debugger address
       4. ``stop_profile()`` – GET /browser_profiles/{id}/stop
     """
