@@ -22,3 +22,6 @@ pillow==10.1.0
 
 # Logging & Monitoring
 loguru==0.7.2
+
+# Testing
+pytest>=7.0
