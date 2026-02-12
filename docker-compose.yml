@@ -1,0 +1,16 @@
+version: "3.8"
+
+services:
+  bunnytweets:
+    build: .
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+    environment:
+      - TZ=America/New_York
+      # Dolphin Anty runs on the host machine
+      - DOLPHIN_ANTY_HOST=host.docker.internal
+      - DOLPHIN_ANTY_PORT=3001
+    # host network needed to reach Dolphin Anty and its browser debug ports
+    network_mode: "host"
+    restart: unless-stopped

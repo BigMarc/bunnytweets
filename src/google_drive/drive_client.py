@@ -1,0 +1,96 @@
+import io
+from pathlib import Path
+from typing import Any
+
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
+from loguru import logger
+
+SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
+
+# Media MIME types we care about
+SUPPORTED_MIME_TYPES = {
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+    "video/mp4",
+    "video/quicktime",
+    "text/plain",
+}
+
+EXTENSION_MAP = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "video/mp4": ".mp4",
+    "video/quicktime": ".mov",
+    "text/plain": ".txt",
+}
+
+
+class DriveClient:
+    """Google Drive API wrapper using a service account."""
+
+    def __init__(self, credentials_file: str):
+        creds = service_account.Credentials.from_service_account_file(
+            credentials_file, scopes=SCOPES
+        )
+        self.service = build("drive", "v3", credentials=creds, cache_discovery=False)
+
+    def list_files(
+        self,
+        folder_id: str,
+        file_types: list[str] | None = None,
+        order_by: str = "createdTime desc",
+        page_size: int = 100,
+    ) -> list[dict[str, Any]]:
+        """List files in a Google Drive folder, optionally filtered by extension."""
+        query = f"'{folder_id}' in parents and trashed = false"
+
+        results = (
+            self.service.files()
+            .list(
+                q=query,
+                pageSize=page_size,
+                orderBy=order_by,
+                fields="files(id, name, mimeType, createdTime, modifiedTime, size)",
+            )
+            .execute()
+        )
+        files = results.get("files", [])
+
+        if file_types:
+            allowed = {ft.lower().lstrip(".") for ft in file_types}
+            files = [
+                f
+                for f in files
+                if any(f["name"].lower().endswith(f".{ext}") for ext in allowed)
+            ]
+
+        return files
+
+    def download_file(self, file_id: str, destination: Path) -> Path:
+        """Download a file from Google Drive to a local path."""
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        request = self.service.files().get_media(fileId=file_id)
+        with open(destination, "wb") as fh:
+            downloader = MediaIoBaseDownload(fh, request)
+            done = False
+            while not done:
+                status, done = downloader.next_chunk()
+                if status:
+                    logger.debug(
+                        f"Download {file_id}: {int(status.progress() * 100)}%"
+                    )
+        logger.info(f"Downloaded {file_id} -> {destination}")
+        return destination
+
+    def get_file_metadata(self, file_id: str) -> dict:
+        return (
+            self.service.files()
+            .get(fileId=file_id, fields="id, name, mimeType, createdTime, modifiedTime, size")
+            .execute()
+        )
