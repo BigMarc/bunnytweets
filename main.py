@@ -3,6 +3,8 @@
 
 Usage:
     python main.py              Start the automation (all enabled accounts)
+    python main.py --setup      Interactive first-time setup wizard
+    python main.py --add-account  Add a new Twitter account interactively
     python main.py --status     Show account status dashboard
     python main.py --test       Run a connectivity test against the browser provider
 """
@@ -19,24 +21,22 @@ from pathlib import Path
 
 from loguru import logger
 
-from src.core.config_loader import ConfigLoader
-from src.core.logger import setup_logging, get_account_logger
-from src.core.database import Database
-from src.dolphin_anty.profile_manager import ProfileManager
-from src.google_drive.drive_client import DriveClient
-from src.google_drive.file_monitor import FileMonitor
-from src.google_drive.media_handler import MediaHandler
-from src.twitter.automation import TwitterAutomation
-from src.twitter.poster import TwitterPoster
-from src.twitter.retweeter import TwitterRetweeter
-from src.scheduler.job_manager import JobManager
-from src.scheduler.queue_handler import QueueHandler, Task
-
 
 class Application:
     """Main application that wires all components together."""
 
     def __init__(self):
+        # Deferred imports so that --setup/--add-account work without
+        # heavy dependencies like selenium being installed.
+        from src.core.config_loader import ConfigLoader
+        from src.core.logger import setup_logging, get_account_logger
+        from src.core.database import Database
+        from src.dolphin_anty.profile_manager import ProfileManager
+        from src.google_drive.drive_client import DriveClient
+        from src.google_drive.file_monitor import FileMonitor
+        from src.scheduler.job_manager import JobManager
+        from src.scheduler.queue_handler import QueueHandler
+
         self.config = ConfigLoader()
         self.db = Database(str(self.config.resolve_path(self.config.database_path)))
 
@@ -58,7 +58,7 @@ class Application:
         # Google Drive
         gd_cfg = self.config.google_drive
         creds_path = str(self.config.resolve_path(gd_cfg.get("credentials_file", "")))
-        self.drive_client: DriveClient | None = None
+        self.drive_client = None
         if Path(creds_path).exists():
             self.drive_client = DriveClient(creds_path)
             self.file_monitor = FileMonitor(
@@ -82,9 +82,9 @@ class Application:
         self.queue = QueueHandler()
 
         # Per-account components (populated during setup)
-        self._automations: dict[str, TwitterAutomation] = {}
-        self._posters: dict[str, TwitterPoster] = {}
-        self._retweeters: dict[str, TwitterRetweeter] = {}
+        self._automations: dict = {}
+        self._posters: dict = {}
+        self._retweeters: dict = {}
 
         self._shutdown = False
 
@@ -122,6 +122,11 @@ class Application:
     # ------------------------------------------------------------------
     def setup_account(self, acct: dict) -> bool:
         """Initialise browser, Selenium, and Twitter components for one account."""
+        from src.core.logger import get_account_logger
+        from src.twitter.automation import TwitterAutomation
+        from src.twitter.poster import TwitterPoster
+        from src.twitter.retweeter import TwitterRetweeter
+
         name = acct["name"]
         twitter_cfg = acct["twitter"]
         profile_id = twitter_cfg.get("profile_id") or twitter_cfg.get("dolphin_profile_id")
@@ -201,6 +206,7 @@ class Application:
             )
 
     def _enqueue_task(self, account_name: str, task_type: str, callback) -> None:
+        from src.scheduler.queue_handler import Task
         task = Task(account_name=account_name, task_type=task_type, callback=callback)
         self.queue.submit(task)
 
@@ -381,9 +387,22 @@ class Application:
 
 def main():
     parser = argparse.ArgumentParser(description="BunnyTweets – Twitter Automation")
+    parser.add_argument("--setup", action="store_true", help="Interactive first-time setup wizard")
+    parser.add_argument("--add-account", action="store_true", help="Add a new Twitter account interactively")
     parser.add_argument("--status", action="store_true", help="Show account status")
     parser.add_argument("--test", action="store_true", help="Test connections")
     args = parser.parse_args()
+
+    # Setup commands run before Application() since config files may not exist
+    if args.setup:
+        from src.core.setup_wizard import run_setup
+        run_setup()
+        return
+
+    if args.add_account:
+        from src.core.setup_wizard import run_add_account
+        run_add_account()
+        return
 
     app = Application()
 
