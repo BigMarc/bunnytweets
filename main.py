@@ -7,6 +7,8 @@ Usage:
     python main.py --test       Run a connectivity test against Dolphin Anty
 """
 
+from __future__ import annotations
+
 import argparse
 import signal
 import sys

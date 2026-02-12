@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from loguru import logger

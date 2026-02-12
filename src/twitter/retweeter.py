@@ -1,5 +1,7 @@
 """High-level retweeting logic: pick target profiles, avoid duplicates, respect limits."""
 
+from __future__ import annotations
+
 from datetime import datetime
 
 from loguru import logger

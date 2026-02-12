@@ -1,5 +1,7 @@
 """High-level posting logic: pulls from Drive queue and posts via Selenium."""
 
+from __future__ import annotations
+
 from datetime import datetime
 from pathlib import Path
 

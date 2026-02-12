@@ -1,5 +1,7 @@
 """Core Selenium helpers for interacting with Twitter/X."""
 
+from __future__ import annotations
+
 import random
 import time
 from pathlib import Path

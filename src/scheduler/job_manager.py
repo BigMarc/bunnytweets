@@ -1,5 +1,7 @@
 """APScheduler-based job manager that sets up cron and interval jobs per account."""
 
+from __future__ import annotations
+
 import random
 from datetime import datetime, timedelta
 from enum import Enum
