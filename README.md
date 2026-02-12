@@ -26,7 +26,7 @@ Automatisches Twitter/X Multi-Account Management System. Postet Content aus Goog
 
 ```bash
 # Repository klonen
-git clone <repo-url> /opt/bunnytweets
+git clone https://github.com/BigMarc/bunnytweets /opt/bunnytweets
 cd /opt/bunnytweets
 
 # VPS-Setup ausfuehren (Ubuntu/Debian, als root)
