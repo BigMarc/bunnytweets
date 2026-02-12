@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+{% block title %}Settings - BunnyTweets{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <h4 class="mb-3"><i class="bi bi-gear me-2"></i>Global Settings</h4>
+
+        {% if engine_running %}
+        <div class="alert alert-warning">
+            <i class="bi bi-exclamation-triangle me-2"></i>
+            Engine is running. Changes will take effect after you restart the engine.
+        </div>
+        {% endif %}
+
+        <form method="POST" action="/settings">
+            <!-- General -->
+            <div class="card border-secondary mb-3">
+                <div class="card-header"><i class="bi bi-sliders me-2"></i>General</div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Browser Provider</label>
+                            <select class="form-select" name="browser_provider">
+                                <option value="gologin" {% if settings.get('browser_provider') == 'gologin' %}selected{% endif %}>GoLogin</option>
+                                <option value="dolphin_anty" {% if settings.get('browser_provider') == 'dolphin_anty' %}selected{% endif %}>Dolphin Anty</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Timezone</label>
+                            <input type="text" class="form-control" name="timezone"
+                                   value="{{ settings.get('timezone', 'America/New_York') }}"
+                                   placeholder="America/New_York">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- GoLogin -->
+            <div class="card border-secondary mb-3">
+                <div class="card-header"><i class="bi bi-globe me-2"></i>GoLogin</div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Host</label>
+                            <input type="text" class="form-control" name="gologin.host"
+                                   value="{{ settings.get('gologin', {}).get('host', 'localhost') }}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Port</label>
+                            <input type="number" class="form-control" name="gologin.port"
+                                   value="{{ settings.get('gologin', {}).get('port', 36912) }}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">API Token</label>
+                            <input type="password" class="form-control" name="gologin.api_token"
+                                   placeholder="{% if settings.get('gologin', {}).get('api_token') %}****{% else %}Enter token{% endif %}">
+                            <small class="form-text text-muted">Leave empty to keep current token</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dolphin Anty -->
+            <div class="card border-secondary mb-3">
+                <div class="card-header"><i class="bi bi-globe me-2"></i>Dolphin Anty</div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Host</label>
+                            <input type="text" class="form-control" name="dolphin_anty.host"
+                                   value="{{ settings.get('dolphin_anty', {}).get('host', 'localhost') }}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Port</label>
+                            <input type="number" class="form-control" name="dolphin_anty.port"
+                                   value="{{ settings.get('dolphin_anty', {}).get('port', 3001) }}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">API Token</label>
+                            <input type="password" class="form-control" name="dolphin_anty.api_token"
+                                   placeholder="{% if settings.get('dolphin_anty', {}).get('api_token') %}****{% else %}Enter token{% endif %}">
+                            <small class="form-text text-muted">Leave empty to keep current token</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Google Drive -->
+            <div class="card border-secondary mb-3">
+                <div class="card-header"><i class="bi bi-google me-2"></i>Google Drive</div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Credentials File</label>
+                            <input type="text" class="form-control" name="google_drive.credentials_file"
+                                   value="{{ settings.get('google_drive', {}).get('credentials_file', 'config/credentials/google_credentials.json') }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Download Directory</label>
+                            <input type="text" class="form-control" name="google_drive.download_dir"
+                                   value="{{ settings.get('google_drive', {}).get('download_dir', 'data/downloads') }}">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Browser -->
+            <div class="card border-secondary mb-3">
+                <div class="card-header"><i class="bi bi-browser-chrome me-2"></i>Browser</div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Implicit Wait (s)</label>
+                            <input type="number" class="form-control" name="browser.implicit_wait"
+                                   value="{{ settings.get('browser', {}).get('implicit_wait', 10) }}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Page Load Timeout (s)</label>
+                            <input type="number" class="form-control" name="browser.page_load_timeout"
+                                   value="{{ settings.get('browser', {}).get('page_load_timeout', 30) }}">
+                        </div>
+                        <div class="col-md-4 d-flex align-items-end">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="browser.headless" id="headless"
+                                       {% if settings.get('browser', {}).get('headless') %}checked{% endif %}>
+                                <label class="form-check-label" for="headless">Headless Mode</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Delays -->
+            <div class="card border-secondary mb-3">
+                <div class="card-header"><i class="bi bi-clock me-2"></i>Delays (human-like timing)</div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Action Min (s)</label>
+                            <input type="number" step="0.1" class="form-control" name="delays.action_min"
+                                   value="{{ settings.get('delays', {}).get('action_min', 2.0) }}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Action Max (s)</label>
+                            <input type="number" step="0.1" class="form-control" name="delays.action_max"
+                                   value="{{ settings.get('delays', {}).get('action_max', 5.0) }}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Typing Min (s)</label>
+                            <input type="number" step="0.01" class="form-control" name="delays.typing_min"
+                                   value="{{ settings.get('delays', {}).get('typing_min', 0.05) }}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Typing Max (s)</label>
+                            <input type="number" step="0.01" class="form-control" name="delays.typing_max"
+                                   value="{{ settings.get('delays', {}).get('typing_max', 0.15) }}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Page Load Min (s)</label>
+                            <input type="number" step="0.1" class="form-control" name="delays.page_load_min"
+                                   value="{{ settings.get('delays', {}).get('page_load_min', 3.0) }}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Page Load Max (s)</label>
+                            <input type="number" step="0.1" class="form-control" name="delays.page_load_max"
+                                   value="{{ settings.get('delays', {}).get('page_load_max', 7.0) }}">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Error Handling -->
+            <div class="card border-secondary mb-3">
+                <div class="card-header"><i class="bi bi-shield-exclamation me-2"></i>Error Handling</div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Max Retries</label>
+                            <input type="number" class="form-control" name="error_handling.max_retries"
+                                   value="{{ settings.get('error_handling', {}).get('max_retries', 3) }}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Retry Backoff (s)</label>
+                            <input type="number" class="form-control" name="error_handling.retry_backoff"
+                                   value="{{ settings.get('error_handling', {}).get('retry_backoff', 5) }}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Pause Duration (min)</label>
+                            <input type="number" class="form-control" name="error_handling.pause_duration_minutes"
+                                   value="{{ settings.get('error_handling', {}).get('pause_duration_minutes', 60) }}">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Logging -->
+            <div class="card border-secondary mb-3">
+                <div class="card-header"><i class="bi bi-journal-text me-2"></i>Logging</div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Log Level</label>
+                            <select class="form-select" name="logging.level">
+                                {% for level in ['DEBUG', 'INFO', 'WARNING', 'ERROR'] %}
+                                <option value="{{ level }}" {% if settings.get('logging', {}).get('level', 'INFO') == level %}selected{% endif %}>{{ level }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Retention (days)</label>
+                            <input type="number" class="form-control" name="logging.retention_days"
+                                   value="{{ settings.get('logging', {}).get('retention_days', 30) }}">
+                        </div>
+                        <div class="col-md-4 d-flex align-items-end">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="logging.per_account_logs" id="per_account_logs"
+                                       {% if settings.get('logging', {}).get('per_account_logs', True) %}checked{% endif %}>
+                                <label class="form-check-label" for="per_account_logs">Per-account log files</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Database -->
+            <div class="card border-secondary mb-3">
+                <div class="card-header"><i class="bi bi-database me-2"></i>Database</div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Database Path</label>
+                            <input type="text" class="form-control" name="database.path"
+                                   value="{{ settings.get('database', {}).get('path', 'data/database/automation.db') }}">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-flex justify-content-end mb-4">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-check-lg me-1"></i>Save Settings
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

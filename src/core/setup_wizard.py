@@ -10,6 +10,7 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -23,6 +24,8 @@ SETTINGS_PATH = BASE_DIR / "config" / "settings.yaml"
 ACCOUNTS_PATH = BASE_DIR / "config" / "accounts.yaml"
 SETTINGS_EXAMPLE = BASE_DIR / "config" / "settings.yaml.example"
 ACCOUNTS_EXAMPLE = BASE_DIR / "config" / "accounts.yaml.example"
+CREDENTIALS_DIR = BASE_DIR / "config" / "credentials"
+CREDENTIALS_PATH = CREDENTIALS_DIR / "google_credentials.json"
 
 
 # ------------------------------------------------------------------
@@ -118,8 +121,10 @@ def _collect_account(provider_name: str) -> dict:
         print("  Profile ID cannot be empty.")
         profile_id = _input(f"Browser profile ID (from {provider_name})")
 
-    # Google Drive
-    folder_id = _input("Google Drive folder ID (leave empty to skip)")
+    # Google Drive (optional – only needed if you post media from Drive)
+    print("\n  Google Drive integration is optional.")
+    print("  Skip this if you don't plan to post media from a Drive folder.")
+    folder_id = _input("Google Drive folder ID (press Enter to skip)")
 
     # Posting
     posting_enabled = _confirm("Enable posting?", default=True)
@@ -195,6 +200,79 @@ def _collect_account(provider_name: str) -> dict:
 
 
 # ------------------------------------------------------------------
+# Google Drive credentials
+# ------------------------------------------------------------------
+def _setup_google_credentials() -> None:
+    """Guide user through setting up Google Drive OAuth credentials."""
+    print("  To get Google Drive credentials:")
+    print("    1. Go to https://console.cloud.google.com/")
+    print("    2. Create a project (or select an existing one)")
+    print("    3. Enable the Google Drive API")
+    print("    4. Go to Credentials > Create Credentials > OAuth client ID")
+    print("    5. Choose 'Desktop app' as the application type")
+    print("    6. Download the JSON file\n")
+
+    print("  You can either:")
+    print("    [1] Paste the JSON content directly")
+    print("    [2] Provide the path to your downloaded JSON file\n")
+
+    choice = _choose(
+        "How would you like to provide the credentials?",
+        [("Paste JSON content", "paste"), ("Path to JSON file", "path")],
+        default=1,
+    )
+
+    creds_data = None
+
+    if choice == "paste":
+        print("\n  Paste your credentials JSON below (then press Enter twice):")
+        lines = []
+        try:
+            while True:
+                line = input()
+                if not line and lines and not lines[-1]:
+                    break
+                lines.append(line)
+        except (EOFError, KeyboardInterrupt):
+            print("\n  Cancelled.")
+            return
+
+        raw = "\n".join(lines).strip()
+        try:
+            creds_data = json.loads(raw)
+        except json.JSONDecodeError as e:
+            print(f"  Invalid JSON: {e}")
+            print("  Skipping credentials setup. Add the file manually later.")
+            return
+
+    elif choice == "path":
+        file_path = _input("Path to your credentials JSON file")
+        if not file_path:
+            print("  No path provided. Skipping.")
+            return
+        src_path = Path(file_path).expanduser().resolve()
+        if not src_path.exists():
+            print(f"  File not found: {src_path}")
+            print("  Skipping credentials setup. Add the file manually later.")
+            return
+        try:
+            with open(src_path, "r", encoding="utf-8") as f:
+                creds_data = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"  Could not read file: {e}")
+            print("  Skipping credentials setup.")
+            return
+
+    if creds_data:
+        CREDENTIALS_DIR.mkdir(parents=True, exist_ok=True)
+        with open(CREDENTIALS_PATH, "w", encoding="utf-8") as f:
+            json.dump(creds_data, f, indent=2)
+        print(f"\n  Credentials saved to {CREDENTIALS_PATH.relative_to(BASE_DIR)}")
+    else:
+        print("  No credentials data. Skipping.")
+
+
+# ------------------------------------------------------------------
 # Full setup
 # ------------------------------------------------------------------
 def run_setup() -> None:
@@ -230,20 +308,23 @@ def run_setup() -> None:
     if provider == "gologin":
         print("  Get your API token from GoLogin dashboard > Settings > API")
         token = _input("GoLogin API token")
-        host = _input("GoLogin host", "localhost")
-        port_raw = _input("GoLogin port", "36912")
+        print("\n  The next two settings are for GoLogin's local desktop app.")
+        print("  Just press Enter to keep the defaults -- they work out of the box.")
+        host = _input("GoLogin host (GoLogin desktop runs locally)", "localhost")
+        port_raw = _input("GoLogin port (GoLogin desktop default)", "36912")
         try:
             port = int(port_raw)
         except ValueError:
             port = 36912
         settings["gologin"] = {"host": host, "port": port, "api_token": token}
-        # Keep dolphin_anty defaults for easy switching later
         settings.setdefault("dolphin_anty", {"host": "localhost", "port": 3001, "api_token": ""})
     else:
         print("  Get your API token from Dolphin Anty settings")
         token = _input("Dolphin Anty API token")
-        host = _input("Dolphin Anty host", "localhost")
-        port_raw = _input("Dolphin Anty port", "3001")
+        print("\n  The next two settings are for Dolphin Anty's local app.")
+        print("  Just press Enter to keep the defaults -- they work out of the box.")
+        host = _input("Dolphin Anty host (runs locally)", "localhost")
+        port_raw = _input("Dolphin Anty port (Dolphin Anty default)", "3001")
         try:
             port = int(port_raw)
         except ValueError:
@@ -257,6 +338,17 @@ def run_setup() -> None:
     # Step 3: Timezone
     tz = _input("\n  Timezone (IANA format)", "America/New_York")
     settings["timezone"] = tz
+
+    # Step 4: Google Drive credentials (optional)
+    print("\n  -- Google Drive Integration (Optional) --")
+    print("  Google Drive lets you post media by uploading files to a Drive folder.")
+    print("  You need a Google Cloud OAuth credentials JSON file for this.")
+    print("  If you don't have one yet, you can skip this and set it up later.\n")
+
+    if _confirm("Set up Google Drive credentials now?", default=False):
+        _setup_google_credentials()
+    else:
+        print("  Skipping Google Drive setup. You can add it later via the web dashboard.")
 
     # Preserve defaults for other sections
     settings.setdefault("google_drive", {
@@ -299,7 +391,7 @@ def run_setup() -> None:
     )
     print(f"\n  Settings saved to {SETTINGS_PATH.relative_to(BASE_DIR)}")
 
-    # Step 4: Accounts
+    # Step 5: Accounts
     print("\n  -- Account Setup --")
     accounts: list[dict] = []
 
@@ -330,9 +422,13 @@ def run_setup() -> None:
     for a in accounts:
         print(f"    - {a['name']} ({a['twitter']['username']})")
     print()
+    gdrive_status = "configured" if CREDENTIALS_PATH.exists() else "not configured"
+    print(f"  Google Drive:     {gdrive_status}")
+    print()
     print("  Next steps:")
     print("    1. python main.py --test     Verify connections")
-    print("    2. python main.py            Start automation")
+    print("    2. python main.py --web      Open the web dashboard")
+    print("    3. python main.py            Start automation (CLI)")
     print("=" * 60)
     print()
 

@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - BunnyTweets{% endblock %}
+
+{% block content %}
+<!-- Engine Control -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card border-secondary">
+            <div class="card-body d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="card-title mb-1">
+                        <i class="bi bi-cpu me-2"></i>Automation Engine
+                    </h5>
+                    <span id="engine-status-text" class="text-muted">
+                        {% if engine_status == 'running' %}
+                            <span class="text-success">Running</span> &mdash; Provider: {{ provider }}
+                        {% elif engine_status == 'starting' %}
+                            <span class="text-warning">Starting...</span>
+                        {% elif engine_status == 'stopping' %}
+                            <span class="text-warning">Stopping...</span>
+                        {% else %}
+                            <span class="text-secondary">Stopped</span>
+                        {% endif %}
+                    </span>
+                    {% if startup_error %}
+                        <div class="text-danger mt-1"><small>Error: {{ startup_error }}</small></div>
+                    {% endif %}
+                </div>
+                <div>
+                    {% if engine_running %}
+                        <button class="btn btn-danger" onclick="stopEngine()">
+                            <i class="bi bi-stop-fill me-1"></i>Stop Engine
+                        </button>
+                    {% else %}
+                        <button class="btn btn-success" onclick="startEngine()">
+                            <i class="bi bi-play-fill me-1"></i>Start Engine
+                        </button>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Stats Row -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card border-secondary text-center">
+            <div class="card-body">
+                <h3 id="stat-accounts">{{ accounts|length }}</h3>
+                <small class="text-muted">Total Accounts</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-secondary text-center">
+            <div class="card-body">
+                <h3 id="stat-active">{{ accounts|selectattr('enabled')|list|length }}</h3>
+                <small class="text-muted">Active</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-secondary text-center">
+            <div class="card-body">
+                <h3 id="stat-jobs">{{ jobs|length }}</h3>
+                <small class="text-muted">Scheduled Jobs</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-secondary text-center">
+            <div class="card-body">
+                <h3 id="stat-queue">{{ queue_size }}</h3>
+                <small class="text-muted">Queued Tasks</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Account Cards -->
+<div class="row mb-4">
+    <div class="col-12">
+        <h5 class="mb-3"><i class="bi bi-people me-2"></i>Accounts</h5>
+    </div>
+    {% for acct in accounts %}
+    <div class="col-xl-4 col-lg-6 mb-3">
+        <div class="card border-secondary h-100" id="card-{{ acct.name }}">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                    <strong>{{ acct.name }}</strong>
+                    <small class="text-muted ms-2">{{ acct.username }}</small>
+                </div>
+                <span class="badge status-badge-{{ acct.name }}" data-status="{{ acct.status }}">
+                    {% if acct.status == 'running' %}
+                        <span class="badge bg-primary">Running</span>
+                    {% elif acct.status == 'error' %}
+                        <span class="badge bg-danger">Error</span>
+                    {% elif acct.status == 'paused' %}
+                        <span class="badge bg-warning text-dark">Paused</span>
+                    {% else %}
+                        <span class="badge bg-success">Idle</span>
+                    {% endif %}
+                </span>
+            </div>
+            <div class="card-body">
+                {% if not acct.enabled %}
+                    <div class="text-muted mb-2"><i class="bi bi-pause-circle me-1"></i>Disabled</div>
+                {% endif %}
+
+                <div class="row mb-2">
+                    <div class="col-6">
+                        <small class="text-muted">Last Post</small><br>
+                        <span class="last-post-{{ acct.name }}">
+                            {{ acct.last_post.strftime('%m/%d %H:%M') if acct.last_post else 'Never' }}
+                        </span>
+                    </div>
+                    <div class="col-6">
+                        <small class="text-muted">Last Retweet</small><br>
+                        <span class="last-rt-{{ acct.name }}">
+                            {{ acct.last_retweet.strftime('%m/%d %H:%M') if acct.last_retweet else 'Never' }}
+                        </span>
+                    </div>
+                </div>
+
+                <div class="mb-2">
+                    <small class="text-muted">Retweets Today</small>
+                    <div class="d-flex align-items-center">
+                        <div class="progress flex-grow-1 me-2" style="height: 8px;">
+                            {% set pct = (acct.retweets_today / acct.retweet_limit * 100) if acct.retweet_limit > 0 else 0 %}
+                            <div class="progress-bar bg-info" style="width: {{ pct|int }}%"></div>
+                        </div>
+                        <small class="rt-count-{{ acct.name }}">{{ acct.retweets_today }}/{{ acct.retweet_limit }}</small>
+                    </div>
+                </div>
+
+                {% if acct.error_message %}
+                    <div class="alert alert-danger py-1 px-2 mb-2 small error-msg-{{ acct.name }}">
+                        {{ acct.error_message }}
+                    </div>
+                {% endif %}
+            </div>
+            <div class="card-footer">
+                <button class="btn btn-sm btn-outline-primary me-1"
+                        onclick="triggerPost('{{ acct.name }}')"
+                        {% if not engine_running or not acct.posting_enabled %}disabled{% endif %}>
+                    <i class="bi bi-send me-1"></i>Post Now
+                </button>
+                <button class="btn btn-sm btn-outline-info"
+                        onclick="triggerRetweet('{{ acct.name }}')"
+                        {% if not engine_running or not acct.retweeting_enabled %}disabled{% endif %}>
+                    <i class="bi bi-repeat me-1"></i>Retweet Now
+                </button>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+
+    {% if not accounts %}
+    <div class="col-12">
+        <div class="card border-secondary">
+            <div class="card-body text-center text-muted py-5">
+                <i class="bi bi-inbox" style="font-size: 2rem;"></i>
+                <p class="mt-2">No accounts configured yet.</p>
+                <a href="/accounts/add" class="btn btn-primary">Add Account</a>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Scheduled Jobs -->
+{% if jobs %}
+<div class="row">
+    <div class="col-12">
+        <div class="card border-secondary">
+            <div class="card-header">
+                <i class="bi bi-calendar-event me-2"></i>Scheduled Jobs
+                <span class="badge bg-secondary ms-2">{{ jobs|length }}</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead class="sticky-top">
+                            <tr>
+                                <th>Job ID</th>
+                                <th>Next Run</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for job in jobs[:20] %}
+                            <tr>
+                                <td><code>{{ job.id }}</code></td>
+                                <td>{{ job.next_run }}</td>
+                            </tr>
+                            {% endfor %}
+                            {% if jobs|length > 20 %}
+                            <tr><td colspan="2" class="text-muted text-center">... and {{ jobs|length - 20 }} more</td></tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}

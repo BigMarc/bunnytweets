@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Logs - BunnyTweets{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4><i class="bi bi-journal-text me-2"></i>Log Viewer</h4>
+            <div class="d-flex gap-2 align-items-center">
+                <select class="form-select form-select-sm" id="log-file-select" style="width: auto;">
+                    {% if files %}
+                        <optgroup label="Main Logs">
+                            {% for f in files if f.category == 'main' %}
+                            <option value="{{ f.name }}" {% if f.name == selected %}selected{% endif %}>{{ f.name }}</option>
+                            {% endfor %}
+                        </optgroup>
+                        <optgroup label="Account Logs">
+                            {% for f in files if f.category == 'account' %}
+                            <option value="{{ f.name }}" {% if f.name == selected %}selected{% endif %}>{{ f.name }}</option>
+                            {% endfor %}
+                        </optgroup>
+                    {% else %}
+                        <option value="">No log files found</option>
+                    {% endif %}
+                </select>
+                <input type="text" class="form-control form-control-sm" id="log-search"
+                       placeholder="Search..." style="width: 200px;">
+                <div class="form-check form-switch ms-2">
+                    <input class="form-check-input" type="checkbox" id="auto-scroll" checked>
+                    <label class="form-check-label" for="auto-scroll">Auto-scroll</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="card border-secondary">
+            <div class="card-body p-0">
+                <pre class="log-viewer" id="log-content">{{ content }}</pre>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/logs.js') }}"></script>
+{% endblock %}

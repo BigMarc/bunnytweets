@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Accounts - BunnyTweets{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4><i class="bi bi-people me-2"></i>Accounts</h4>
+    <a href="/accounts/add" class="btn btn-primary">
+        <i class="bi bi-plus-lg me-1"></i>Add Account
+    </a>
+</div>
+
+{% if accounts %}
+<div class="card border-secondary">
+    <div class="table-responsive">
+        <table class="table table-hover mb-0">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Username</th>
+                    <th>Profile ID</th>
+                    <th>Status</th>
+                    <th>Enabled</th>
+                    <th>Posting</th>
+                    <th>Retweeting</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for acct in accounts %}
+                <tr id="row-{{ acct.name }}">
+                    <td><strong>{{ acct.name }}</strong></td>
+                    <td>{{ acct.get('twitter', {}).get('username', '') }}</td>
+                    <td><code>{{ acct.get('twitter', {}).get('profile_id', '') [:12] }}...</code></td>
+                    <td>
+                        {% if acct.status == 'running' %}
+                            <span class="badge bg-primary">Running</span>
+                        {% elif acct.status == 'error' %}
+                            <span class="badge bg-danger">Error</span>
+                        {% elif acct.status == 'paused' %}
+                            <span class="badge bg-warning text-dark">Paused</span>
+                        {% else %}
+                            <span class="badge bg-success">Idle</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox"
+                                   id="toggle-{{ acct.name }}"
+                                   {% if acct.get('enabled', True) %}checked{% endif %}
+                                   onchange="toggleAccount('{{ acct.name }}')">
+                        </div>
+                    </td>
+                    <td>
+                        {% if acct.get('posting', {}).get('enabled') %}
+                            <span class="badge bg-info">On</span>
+                        {% else %}
+                            <span class="badge bg-secondary">Off</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if acct.get('retweeting', {}).get('enabled') %}
+                            <span class="badge bg-info">On</span>
+                            <small class="text-muted">({{ acct.get('retweeting', {}).get('daily_limit', 3) }}/day)</small>
+                        {% else %}
+                            <span class="badge bg-secondary">Off</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-end">
+                        <a href="/accounts/{{ acct.name }}/edit" class="btn btn-sm btn-outline-primary me-1">
+                            <i class="bi bi-pencil"></i>
+                        </a>
+                        <button class="btn btn-sm btn-outline-danger"
+                                onclick="deleteAccount('{{ acct.name }}')">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% else %}
+<div class="card border-secondary">
+    <div class="card-body text-center text-muted py-5">
+        <i class="bi bi-inbox" style="font-size: 2rem;"></i>
+        <p class="mt-2">No accounts configured yet.</p>
+        <a href="/accounts/add" class="btn btn-primary">Add Your First Account</a>
+    </div>
+</div>
+{% endif %}
+
+<!-- Delete confirmation modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Delete Account</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                Are you sure you want to delete <strong id="delete-name"></strong>?
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <form id="delete-form" method="POST" style="display:inline;">
+                    <button type="submit" class="btn btn-danger">Delete</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/accounts.js') }}"></script>
+{% endblock %}
