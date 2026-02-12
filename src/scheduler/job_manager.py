@@ -146,7 +146,8 @@ class JobManager:
         logger.info("Scheduler started")
 
     def shutdown(self) -> None:
-        self.scheduler.shutdown(wait=False)
+        if self.scheduler.running:
+            self.scheduler.shutdown(wait=False)
         logger.info("Scheduler shut down")
 
     def get_jobs_summary(self) -> list[dict]:
