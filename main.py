@@ -87,6 +87,7 @@ class Application:
         self._automations: dict = {}
         self._posters: dict = {}
         self._retweeters: dict = {}
+        self._simulators: dict = {}
 
         self._shutdown = False
         self._ready = threading.Event()
@@ -129,6 +130,7 @@ class Application:
         from src.twitter.automation import TwitterAutomation
         from src.twitter.poster import TwitterPoster
         from src.twitter.retweeter import TwitterRetweeter
+        from src.twitter.human_simulator import HumanSimulator
 
         name = acct["name"]
         twitter_cfg = acct["twitter"]
@@ -166,6 +168,10 @@ class Application:
         # Retweeter
         retweeter = TwitterRetweeter(automation, self.db, name, acct)
         self._retweeters[name] = retweeter
+
+        # Human simulator
+        simulator = HumanSimulator(automation, self.db, name, acct)
+        self._simulators[name] = simulator
 
         self.db.update_account_status(name, status="idle", error_message=None)
         logger.info(f"[{name}] Account set up successfully")
@@ -206,6 +212,16 @@ class Application:
                 daily_limit=rt_cfg.get("daily_limit", 3),
                 time_windows=rt_cfg.get("time_windows", []),
                 callback=partial(self._enqueue_task, name, "retweet", self._retweeters[name].run_retweet_cycle),
+            )
+
+        # Human simulation schedule
+        sim_cfg = acct.get("human_simulation", {})
+        if sim_cfg.get("enabled") and name in self._simulators:
+            self.job_manager.add_simulation_jobs(
+                name,
+                daily_sessions=sim_cfg.get("daily_sessions_limit", 2),
+                time_windows=sim_cfg.get("time_windows", []),
+                callback=partial(self._enqueue_task, name, "simulation", self._simulators[name].run_session),
             )
 
     def _enqueue_task(self, account_name: str, task_type: str, callback) -> None:

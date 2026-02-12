@@ -53,6 +53,23 @@ accounts:
       # Strategy for selecting tweets: "latest", "random"
       strategy: "latest"
 
+    # Human-like browsing simulation (anti-detection)
+    human_simulation:
+      enabled: true
+      # Session duration range in minutes (randomized each time)
+      session_duration_min: 30
+      session_duration_max: 60
+      # Max simulation sessions per day
+      daily_sessions_limit: 2
+      # Max likes per day across all sessions
+      daily_likes_limit: 30
+      # Time windows when simulation can run
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:00"
+
   # --- Account 2 ---
   - name: "SecondAccount"
     enabled: true
@@ -85,3 +102,15 @@ accounts:
         - start: "16:00"
           end: "20:00"
       strategy: "latest"
+
+    human_simulation:
+      enabled: true
+      session_duration_min: 30
+      session_duration_max: 60
+      daily_sessions_limit: 2
+      daily_likes_limit: 25
+      time_windows:
+        - start: "09:00"
+          end: "14:00"
+        - start: "19:00"
+          end: "22:00"

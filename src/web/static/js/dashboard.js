@@ -55,6 +55,7 @@ function updateAccountCard(acct) {
     if (badgeEl) {
         const badges = {
             'running': '<span class="badge bg-primary">Running</span>',
+            'browsing': '<span class="badge bg-info">Browsing</span>',
             'error': '<span class="badge bg-danger">Error</span>',
             'paused': '<span class="badge bg-warning text-dark">Paused</span>',
             'idle': '<span class="badge bg-success">Idle</span>',
@@ -150,6 +151,16 @@ async function triggerRetweet(accountName) {
         showToast(data.message, data.success ? 'success' : 'warning');
     } catch (e) {
         showToast('Failed to trigger retweet', 'danger');
+    }
+}
+
+async function triggerSimulation(accountName) {
+    try {
+        const resp = await fetch(`/api/actions/account/${accountName}/simulate`, { method: 'POST' });
+        const data = await resp.json();
+        showToast(data.message, data.success ? 'success' : 'warning');
+    } catch (e) {
+        showToast('Failed to trigger simulation', 'danger');
     }
 }
 

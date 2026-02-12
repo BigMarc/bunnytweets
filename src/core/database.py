@@ -6,6 +6,7 @@ from pathlib import Path
 from sqlalchemy import (
     create_engine,
     inspect,
+    text as sa_text,
     Column,
     Integer,
     String,
@@ -48,8 +49,12 @@ class AccountStatus(Base):
     last_retweet = Column(DateTime)
     retweets_today = Column(Integer, default=0)
     retweets_date = Column(String)  # YYYY-MM-DD – used to reset counter daily
-    status = Column(String, default="idle")  # idle | running | paused | error
+    status = Column(String, default="idle")  # idle | running | browsing | paused | error
     error_message = Column(Text)
+    # Human simulation tracking
+    sim_date = Column(String)          # YYYY-MM-DD – reset daily
+    sim_sessions_today = Column(Integer, default=0)
+    sim_likes_today = Column(Integer, default=0)
 
 
 class Database:
@@ -61,6 +66,7 @@ class Database:
         self.engine = create_engine(f"sqlite:///{path}", echo=False)
         self._migrate_retweets_table()
         Base.metadata.create_all(self.engine)
+        self._migrate_add_columns()
         self._Session = sessionmaker(bind=self.engine)
 
     def _migrate_retweets_table(self) -> None:
@@ -76,6 +82,25 @@ class Database:
             if "tweet_id" in uq.get("column_names", []):
                 Retweet.__table__.drop(self.engine)
                 return
+
+    def _migrate_add_columns(self) -> None:
+        """Add new columns to existing tables if they're missing (SQLite)."""
+        insp = inspect(self.engine)
+        if "account_status" not in insp.get_table_names():
+            return
+        existing = {c["name"] for c in insp.get_columns("account_status")}
+        new_cols = {
+            "sim_date": "VARCHAR",
+            "sim_sessions_today": "INTEGER DEFAULT 0",
+            "sim_likes_today": "INTEGER DEFAULT 0",
+        }
+        with self.engine.connect() as conn:
+            for col_name, col_type in new_cols.items():
+                if col_name not in existing:
+                    conn.execute(
+                        sa_text(f"ALTER TABLE account_status ADD COLUMN {col_name} {col_type}")
+                    )
+                    conn.commit()
 
     def session(self) -> Session:
         return self._Session()

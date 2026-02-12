@@ -44,9 +44,16 @@ class TwitterPoster:
             logger.warning(f"[{self.account_name}] No Google Drive folder_id configured")
             return False
 
-        new_files = self.monitor.check_for_new_files(
-            self.account_name, folder_id, file_types
-        )
+        try:
+            new_files = self.monitor.check_for_new_files(
+                self.account_name, folder_id, file_types
+            )
+        except Exception as exc:
+            logger.warning(
+                f"[{self.account_name}] Could not reach Google Drive: {exc}. "
+                "Will retry on the next cycle."
+            )
+            return False
         if not new_files:
             logger.debug(f"[{self.account_name}] No new files to post")
             return False

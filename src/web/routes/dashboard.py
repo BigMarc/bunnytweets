@@ -1,5 +1,7 @@
 """Dashboard home page."""
 
+from datetime import date
+
 from flask import Blueprint, render_template, current_app
 
 bp = Blueprint("dashboard", __name__)
@@ -11,12 +13,22 @@ def index():
     accounts = state.config.accounts
     account_data = []
 
+    today = date.today().isoformat()
+
     for acct in accounts:
         name = acct.get("name", "unknown")
         twitter = acct.get("twitter", {})
         status_obj = state.db.get_account_status(name)
         rt_today = state.db.get_retweets_today(name)
         rt_limit = acct.get("retweeting", {}).get("daily_limit", 3)
+        sim_cfg = acct.get("human_simulation", {})
+
+        # Simulation stats
+        sim_sessions_today = 0
+        sim_likes_today = 0
+        if status_obj and getattr(status_obj, "sim_date", None) == today:
+            sim_sessions_today = getattr(status_obj, "sim_sessions_today", 0) or 0
+            sim_likes_today = getattr(status_obj, "sim_likes_today", 0) or 0
 
         account_data.append({
             "name": name,
@@ -30,6 +42,11 @@ def index():
             "error_message": status_obj.error_message if status_obj else None,
             "posting_enabled": acct.get("posting", {}).get("enabled", False),
             "retweeting_enabled": acct.get("retweeting", {}).get("enabled", False),
+            "sim_enabled": sim_cfg.get("enabled", False),
+            "sim_sessions_today": sim_sessions_today,
+            "sim_sessions_limit": sim_cfg.get("daily_sessions_limit", 2),
+            "sim_likes_today": sim_likes_today,
+            "sim_likes_limit": sim_cfg.get("daily_likes_limit", 30),
         })
 
     jobs = []

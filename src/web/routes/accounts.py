@@ -205,6 +205,38 @@ def _parse_account_form(form):
             {"start": "19:00", "end": "22:00"},
         ]
 
+    # Human simulation
+    sim_enabled = "human_simulation.enabled" in form
+    acct["human_simulation"] = {"enabled": sim_enabled}
+    if sim_enabled:
+        acct["human_simulation"]["session_duration_min"] = _to_int(
+            form.get("human_simulation.session_duration_min", "30"), 30
+        )
+        acct["human_simulation"]["session_duration_max"] = _to_int(
+            form.get("human_simulation.session_duration_max", "60"), 60
+        )
+        acct["human_simulation"]["daily_sessions_limit"] = _to_int(
+            form.get("human_simulation.daily_sessions_limit", "2"), 2
+        )
+        acct["human_simulation"]["daily_likes_limit"] = _to_int(
+            form.get("human_simulation.daily_likes_limit", "30"), 30
+        )
+
+        # Simulation time windows
+        sim_windows = []
+        i = 0
+        while True:
+            start = form.get(f"sim_window_{i}_start", "").strip()
+            end = form.get(f"sim_window_{i}_end", "").strip()
+            if not start or not end:
+                break
+            sim_windows.append({"start": start, "end": end})
+            i += 1
+        acct["human_simulation"]["time_windows"] = sim_windows or [
+            {"start": "08:00", "end": "12:00"},
+            {"start": "18:00", "end": "23:00"},
+        ]
+
     return acct
 
 

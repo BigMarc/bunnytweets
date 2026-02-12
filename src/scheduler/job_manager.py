@@ -16,6 +16,7 @@ class JobType(Enum):
     RETWEET_TARGET = "retweet_target"
     DRIVE_SYNC = "drive_sync"
     HEALTH_CHECK = "health_check"
+    HUMAN_SIMULATION = "human_simulation"
 
 
 class JobManager:
@@ -124,6 +125,53 @@ class JobManager:
         logger.info(
             f"Scheduled Drive sync: {job_id} every {interval_minutes} minutes"
         )
+
+    # ------------------------------------------------------------------
+    # Human simulation schedules
+    # ------------------------------------------------------------------
+    def add_simulation_jobs(
+        self,
+        account_name: str,
+        daily_sessions: int,
+        time_windows: list[dict],
+        callback,
+    ) -> None:
+        """Schedule human simulation sessions spread across time windows.
+
+        Distributes sessions across the given windows at random times.
+        """
+        if not time_windows or daily_sessions <= 0:
+            return
+
+        sessions_per_window = max(1, daily_sessions // len(time_windows))
+        remaining = daily_sessions
+
+        for wi, window in enumerate(time_windows):
+            if remaining <= 0:
+                break
+            count = min(sessions_per_window, remaining)
+            start_h, start_m = map(int, window["start"].split(":"))
+            end_h, end_m = map(int, window["end"].split(":"))
+
+            for si in range(count):
+                total_start = start_h * 60 + start_m
+                total_end = end_h * 60 + end_m
+                random_minute = random.randint(total_start, max(total_start, total_end - 1))
+                h = random_minute // 60
+                m = random_minute % 60
+
+                job_id = f"sim_{account_name}_w{wi}_s{si}"
+                self.scheduler.add_job(
+                    callback,
+                    trigger="cron",
+                    hour=h,
+                    minute=m,
+                    id=job_id,
+                    replace_existing=True,
+                    name=f"Human sim for {account_name} at {h:02d}:{m:02d}",
+                )
+                logger.info(f"Scheduled simulation job: {job_id} at {h:02d}:{m:02d}")
+                remaining -= 1
 
     # ------------------------------------------------------------------
     # Health check
