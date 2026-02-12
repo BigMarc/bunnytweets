@@ -5,6 +5,7 @@ from pathlib import Path
 
 from sqlalchemy import (
     create_engine,
+    inspect,
     Column,
     Integer,
     String,
@@ -35,7 +36,7 @@ class Retweet(Base):
     id = Column(Integer, primary_key=True)
     account_name = Column(String, index=True, nullable=False)
     target_username = Column(String, nullable=False)
-    tweet_id = Column(String, unique=True, nullable=False)
+    tweet_id = Column(String, index=True, nullable=False)
     retweeted_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -58,8 +59,23 @@ class Database:
         path = Path(db_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         self.engine = create_engine(f"sqlite:///{path}", echo=False)
+        self._migrate_retweets_table()
         Base.metadata.create_all(self.engine)
         self._Session = sessionmaker(bind=self.engine)
+
+    def _migrate_retweets_table(self) -> None:
+        """Drop the old retweets table if it has a unique constraint on tweet_id.
+
+        Multi-account support requires different accounts to retweet the same
+        tweet independently, so tweet_id must NOT be unique.
+        """
+        insp = inspect(self.engine)
+        if "retweets" not in insp.get_table_names():
+            return
+        for uq in insp.get_unique_constraints("retweets"):
+            if "tweet_id" in uq.get("column_names", []):
+                Retweet.__table__.drop(self.engine)
+                return
 
     def session(self) -> Session:
         return self._Session()
@@ -88,9 +104,14 @@ class Database:
             s.commit()
 
     # ----- Retweets -----
-    def is_already_retweeted(self, tweet_id: str) -> bool:
+    def is_already_retweeted(self, account_name: str, tweet_id: str) -> bool:
         with self.session() as s:
-            return s.query(Retweet).filter_by(tweet_id=tweet_id).first() is not None
+            return (
+                s.query(Retweet)
+                .filter_by(account_name=account_name, tweet_id=tweet_id)
+                .first()
+                is not None
+            )
 
     def record_retweet(self, account_name: str, target_username: str, tweet_id: str) -> None:
         with self.session() as s:

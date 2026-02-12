@@ -61,7 +61,7 @@ class TwitterRetweeter:
                 if not tweet_id:
                     continue
 
-                if self.db.is_already_retweeted(tweet_id):
+                if self.db.is_already_retweeted(self.account_name, tweet_id):
                     logger.debug(
                         f"[{self.account_name}] Already retweeted {tweet_id}, skipping"
                     )
