@@ -71,14 +71,18 @@ class Database:
         self, account_name: str, file_id: str, file_name: str, tweet_id: str | None = None, status: str = "success"
     ) -> None:
         with self.session() as s:
-            entry = ProcessedFile(
-                account_name=account_name,
-                file_id=file_id,
-                file_name=file_name,
-                tweet_id=tweet_id,
-                status=status,
-            )
-            s.merge(entry)
+            existing = s.query(ProcessedFile).filter_by(file_id=file_id).first()
+            if existing:
+                existing.tweet_id = tweet_id
+                existing.status = status
+            else:
+                s.add(ProcessedFile(
+                    account_name=account_name,
+                    file_id=file_id,
+                    file_name=file_name,
+                    tweet_id=tweet_id,
+                    status=status,
+                ))
             s.commit()
 
     # ----- Retweets -----
