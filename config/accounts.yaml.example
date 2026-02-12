@@ -1,0 +1,86 @@
+# Twitter Multi-Account Automation - Account Configuration
+# Copy this file to accounts.yaml and fill in your details.
+
+accounts:
+  # --- Account 1 ---
+  - name: "MyMainAccount"
+    enabled: true
+
+    twitter:
+      username: "@your_handle"
+      # Dolphin Anty browser profile ID for this account.
+      # Find it in Dolphin Anty UI or via API: GET http://localhost:3001/v1.0/browser_profiles
+      dolphin_profile_id: "your_dolphin_profile_id"
+
+    google_drive:
+      # The Google Drive folder ID containing media for this account.
+      # You can find it in the URL when viewing the folder in Google Drive.
+      folder_id: "1ABCdefGHIjklMNOpqrSTUvwx"
+      # How often to check for new files (in minutes)
+      check_interval_minutes: 15
+      # Allowed file types to download and post
+      file_types: ["jpg", "png", "gif", "webp", "mp4", "mov", "txt"]
+
+    posting:
+      enabled: true
+      schedule:
+        # Posting times in the configured timezone (see settings.yaml)
+        - time: "09:00"
+        - time: "15:00"
+        - time: "20:00"
+      # Fallback text if no .txt file accompanies the media
+      default_text: ""
+
+    retweeting:
+      enabled: true
+      # Maximum retweets per day for this account
+      daily_limit: 3
+      target_profiles:
+        # Profiles whose tweets should be retweeted
+        - username: "@target_profile_1"
+          priority: 1
+        - username: "@target_profile_2"
+          priority: 2
+      # Time windows during which retweets are allowed
+      time_windows:
+        - start: "09:00"
+          end: "12:00"
+        - start: "14:00"
+          end: "17:00"
+        - start: "19:00"
+          end: "22:00"
+      # Strategy for selecting tweets: "latest", "random"
+      strategy: "latest"
+
+  # --- Account 2 ---
+  - name: "SecondAccount"
+    enabled: true
+
+    twitter:
+      username: "@second_handle"
+      dolphin_profile_id: "another_dolphin_profile_id"
+
+    google_drive:
+      folder_id: "1XYZabc..."
+      check_interval_minutes: 30
+      file_types: ["jpg", "png", "mp4", "txt"]
+
+    posting:
+      enabled: true
+      schedule:
+        - time: "10:00"
+        - time: "18:00"
+      default_text: ""
+
+    retweeting:
+      enabled: true
+      daily_limit: 3
+      target_profiles:
+        - username: "@some_profile"
+          priority: 1
+      time_windows:
+        - start: "10:00"
+          end: "13:00"
+        - start: "16:00"
+          end: "20:00"
+      strategy: "latest"

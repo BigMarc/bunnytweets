@@ -1,0 +1,60 @@
+# Twitter Multi-Account Automation - Global Settings
+# Copy this file to settings.yaml and adjust as needed.
+
+# Default timezone for all schedules (IANA timezone name)
+timezone: "America/New_York"
+
+# Dolphin Anty Local API connection
+dolphin_anty:
+  host: "localhost"
+  port: 3001
+  # API token (can also be set via DOLPHIN_ANTY_TOKEN env var)
+  api_token: ""
+
+# Google Drive API settings
+google_drive:
+  # Path to the service account credentials JSON file
+  credentials_file: "config/credentials/google_credentials.json"
+  # Where to store downloaded media temporarily
+  download_dir: "data/downloads"
+
+# Selenium / Browser settings
+browser:
+  # Implicit wait timeout (seconds)
+  implicit_wait: 10
+  # Page load timeout (seconds)
+  page_load_timeout: 30
+  # Headless mode (set to true on VPS without display)
+  headless: false
+
+# Anti-detection delays (seconds) - randomized between min and max
+delays:
+  action_min: 2.0
+  action_max: 5.0
+  typing_min: 0.05
+  typing_max: 0.15
+  page_load_min: 3.0
+  page_load_max: 7.0
+
+# Error handling
+error_handling:
+  # Number of retries before pausing an account
+  max_retries: 3
+  # Backoff multiplier for retries (seconds)
+  retry_backoff: 5
+  # How long to pause a failed account (minutes)
+  pause_duration_minutes: 60
+
+# Logging
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+  # Log retention in days
+  retention_days: 30
+  # Separate log file per account
+  per_account_logs: true
+
+# Database
+database:
+  # SQLite database path
+  path: "data/database/automation.db"
