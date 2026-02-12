@@ -19,11 +19,13 @@ class TwitterRetweeter:
         database: Database,
         account_name: str,
         account_config: dict,
+        notifier=None,
     ):
         self.auto = automation
         self.db = database
         self.account_name = account_name
         self.config = account_config
+        self.notifier = notifier
 
     def run_retweet_cycle(self) -> bool:
         """Perform one retweet if quota allows. Returns True if a retweet was made."""
@@ -61,7 +63,7 @@ class TwitterRetweeter:
                 if not tweet_id:
                     continue
 
-                if self.db.is_already_retweeted(tweet_id):
+                if self.db.is_already_retweeted(self.account_name, tweet_id):
                     logger.debug(
                         f"[{self.account_name}] Already retweeted {tweet_id}, skipping"
                     )
@@ -90,6 +92,10 @@ class TwitterRetweeter:
                     logger.warning(
                         f"[{self.account_name}] Failed to retweet {tweet_id}"
                     )
+                    if self.notifier:
+                        self.notifier.alert_retweet_failed(
+                            self.account_name, f"Failed to retweet {tweet_id} from {username}"
+                        )
 
         logger.debug(f"[{self.account_name}] No eligible tweets to retweet this cycle")
         return False

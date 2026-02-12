@@ -65,7 +65,19 @@ class AppState:
                 app = Application()
                 with self._lock:
                     self._application = app
-                    self._engine_status = "running"
+
+                # Watch for the Application._ready event so we only mark
+                # "running" after accounts are set up and the scheduler starts.
+                def _watch_ready():
+                    if app._ready.wait(timeout=300):
+                        with self._lock:
+                            if self._engine_status == "starting":
+                                self._engine_status = "running"
+
+                watcher = threading.Thread(
+                    target=_watch_ready, daemon=True, name="engine-ready-watcher"
+                )
+                watcher.start()
 
                 # This blocks until shutdown
                 app.run()

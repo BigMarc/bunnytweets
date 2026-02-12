@@ -128,7 +128,12 @@ class TwitterAutomation:
     # Posting
     # ------------------------------------------------------------------
     def compose_tweet(self, text: str = "", media_files: list[Path] | None = None) -> bool:
-        """Open the compose dialog, fill in text and media, and send."""
+        """Open the compose dialog, fill in text and media, and send.
+
+        Returns True on success.  After a successful post the browser stays on
+        the home feed — callers can use ``get_latest_tweet_urls`` to grab the
+        URL of the just-posted tweet if needed.
+        """
         self.navigate_home()
         self._action_delay()
 
@@ -149,8 +154,10 @@ class TwitterAutomation:
 
             # Upload media files
             if media_files:
-                file_input = self.driver.find_element(
-                    By.CSS_SELECTOR, 'input[data-testid="fileInput"]'
+                file_input = WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located(
+                        (By.CSS_SELECTOR, 'input[data-testid="fileInput"]')
+                    )
                 )
                 for mf in media_files:
                     abs_path = str(mf.resolve())
@@ -221,6 +228,46 @@ class TwitterAutomation:
                 return False
 
     # ------------------------------------------------------------------
+    # Commenting / Replying to a tweet
+    # ------------------------------------------------------------------
+    def reply_to_tweet(self, tweet_url: str, text: str) -> bool:
+        """Navigate to a tweet and post a reply/comment."""
+        self.navigate_to(tweet_url)
+        self._action_delay()
+
+        try:
+            # Click on the reply textarea
+            reply_box = WebDriverWait(self.driver, 15).until(
+                EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, 'div[data-testid="tweetTextarea_0"]')
+                )
+            )
+            reply_box.click()
+            self._action_delay()
+
+            # Type the reply text
+            self._human_type(reply_box, text)
+            self._action_delay()
+
+            # Click the reply button
+            reply_btn = WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable(
+                    (By.CSS_SELECTOR, 'button[data-testid="tweetButtonInline"]')
+                )
+            )
+            reply_btn.click()
+            logger.info(f"Replied to {tweet_url}")
+            self._page_delay()
+            return True
+
+        except (TimeoutException, NoSuchElementException) as exc:
+            logger.error(f"Failed to reply to {tweet_url}: {exc}")
+            return False
+        except ElementClickInterceptedException as exc:
+            logger.error(f"Could not click reply button on {tweet_url}: {exc}")
+            return False
+
+    # ------------------------------------------------------------------
     # Fetching tweets from a profile
     # ------------------------------------------------------------------
     def get_latest_tweet_urls(self, username: str, limit: int = 10) -> list[str]:
@@ -268,3 +315,102 @@ class TwitterAutomation:
             if part == "status" and i + 1 < len(parts):
                 return parts[i + 1]
         return ""
+
+    # ------------------------------------------------------------------
+    # Human-like browsing actions
+    # ------------------------------------------------------------------
+    def scroll_feed(self, scroll_count: int = 1) -> int:
+        """Scroll the current page down a random amount. Returns pixels scrolled."""
+        total = 0
+        for _ in range(scroll_count):
+            pixels = random.randint(300, 900)
+            self.driver.execute_script(f"window.scrollBy(0, {pixels});")
+            total += pixels
+            time.sleep(random.uniform(1.5, 4.0))
+        return total
+
+    def like_tweet_on_page(self) -> bool:
+        """Find an unliked tweet on the current page and like it.
+
+        Returns True if a like was performed.
+        """
+        try:
+            like_buttons = self.driver.find_elements(
+                By.CSS_SELECTOR, 'button[data-testid="like"]'
+            )
+            if not like_buttons:
+                return False
+            # Pick a random unliked tweet
+            btn = random.choice(like_buttons)
+            # Scroll the button into view
+            self.driver.execute_script(
+                "arguments[0].scrollIntoView({block:'center'});", btn
+            )
+            time.sleep(random.uniform(0.5, 1.5))
+            btn.click()
+            logger.debug("Liked a tweet on the feed")
+            self._action_delay()
+            return True
+        except (NoSuchElementException, ElementClickInterceptedException, Exception) as exc:
+            logger.debug(f"Could not like tweet: {exc}")
+            return False
+
+    def open_random_thread(self) -> bool:
+        """Click into a random tweet thread on the current page.
+
+        Returns True if navigation succeeded.
+        """
+        try:
+            articles = self.driver.find_elements(
+                By.CSS_SELECTOR, 'article[data-testid="tweet"]'
+            )
+            if not articles:
+                return False
+
+            article = random.choice(articles)
+            # Find the timestamp link (leads to the tweet thread)
+            try:
+                time_link = article.find_element(
+                    By.CSS_SELECTOR, "a time"
+                ).find_element(By.XPATH, "..")
+                href = time_link.get_attribute("href")
+                if href and "/status/" in href:
+                    self.driver.execute_script(
+                        "arguments[0].scrollIntoView({block:'center'});", time_link
+                    )
+                    time.sleep(random.uniform(0.5, 1.0))
+                    time_link.click()
+                    self._page_delay()
+                    return True
+            except NoSuchElementException:
+                pass
+            return False
+        except Exception as exc:
+            logger.debug(f"Could not open thread: {exc}")
+            return False
+
+    def browse_thread_comments(self, scroll_count: int | None = None) -> int:
+        """Scroll through comments in the current tweet thread.
+
+        Returns the number of scrolls performed.
+        """
+        if scroll_count is None:
+            scroll_count = random.randint(2, 8)
+        for i in range(scroll_count):
+            pixels = random.randint(200, 600)
+            self.driver.execute_script(f"window.scrollBy(0, {pixels});")
+            # Variable pauses: sometimes read longer, sometimes skim
+            if random.random() < 0.3:
+                # "Reading" a comment more carefully
+                time.sleep(random.uniform(4.0, 10.0))
+            else:
+                time.sleep(random.uniform(1.5, 4.0))
+        return scroll_count
+
+    def navigate_explore(self) -> None:
+        """Navigate to the Explore / Search page."""
+        self.navigate_to(f"{TWITTER_BASE}/explore")
+
+    def navigate_notifications(self) -> None:
+        """Navigate to the Notifications page."""
+        self.navigate_to(f"{TWITTER_BASE}/notifications")

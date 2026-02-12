@@ -65,6 +65,15 @@ logging:
   # Separate log file per account
   per_account_logs: true
 
+# Discord webhook notifications (troubleshooting alerts)
+discord:
+  # Webhook URL for your Discord channel
+  webhook_url: ""
+  # Thread ID if posting to a specific thread (optional)
+  thread_id: ""
+  # Enable/disable notifications
+  enabled: false
+
 # Database
 database:
   # SQLite database path

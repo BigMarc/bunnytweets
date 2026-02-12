@@ -94,6 +94,8 @@
                 <span class="badge status-badge-{{ acct.name }}" data-status="{{ acct.status }}">
                     {% if acct.status == 'running' %}
                         <span class="badge bg-primary">Running</span>
+                    {% elif acct.status == 'browsing' %}
+                        <span class="badge bg-info">Browsing</span>
                     {% elif acct.status == 'error' %}
                         <span class="badge bg-danger">Error</span>
                     {% elif acct.status == 'paused' %}
@@ -134,6 +136,16 @@
                     </div>
                 </div>
 
+                {% if acct.sim_enabled %}
+                <div class="mb-2">
+                    <small class="text-muted">Simulation Today</small>
+                    <div class="d-flex justify-content-between">
+                        <small>Sessions: {{ acct.sim_sessions_today }}/{{ acct.sim_sessions_limit }}</small>
+                        <small>Likes: {{ acct.sim_likes_today }}/{{ acct.sim_likes_limit }}</small>
+                    </div>
+                </div>
+                {% endif %}
+
                 {% if acct.error_message %}
                     <div class="alert alert-danger py-1 px-2 mb-2 small error-msg-{{ acct.name }}">
                         {{ acct.error_message }}
@@ -146,10 +158,15 @@
                         {% if not engine_running or not acct.posting_enabled %}disabled{% endif %}>
                     <i class="bi bi-send me-1"></i>Post Now
                 </button>
-                <button class="btn btn-sm btn-outline-info"
+                <button class="btn btn-sm btn-outline-info me-1"
                         onclick="triggerRetweet('{{ acct.name }}')"
                         {% if not engine_running or not acct.retweeting_enabled %}disabled{% endif %}>
                     <i class="bi bi-repeat me-1"></i>Retweet Now
+                </button>
+                <button class="btn btn-sm btn-outline-secondary"
+                        onclick="triggerSimulation('{{ acct.name }}')"
+                        {% if not engine_running or not acct.sim_enabled %}disabled{% endif %}>
+                    <i class="bi bi-person-walking me-1"></i>Browse Now
                 </button>
             </div>
         </div>

@@ -38,15 +38,18 @@ class TestProcessedFiles:
 
 class TestRetweets:
     def test_record_and_check(self, db):
-        assert not db.is_already_retweeted("tw_001")
+        assert not db.is_already_retweeted("acct1", "tw_001")
         db.record_retweet("acct1", "@target", "tw_001")
-        assert db.is_already_retweeted("tw_001")
+        assert db.is_already_retweeted("acct1", "tw_001")
 
     def test_different_accounts_same_tweet(self, db):
         db.record_retweet("acct1", "@t", "tw_100")
-        # same tweet_id from a different account should raise unique constraint
-        with pytest.raises(Exception):
-            db.record_retweet("acct2", "@t", "tw_100")
+        # Different accounts CAN retweet the same tweet independently
+        db.record_retweet("acct2", "@t", "tw_100")
+        assert db.is_already_retweeted("acct1", "tw_100")
+        assert db.is_already_retweeted("acct2", "tw_100")
+        # But acct3 hasn't retweeted it
+        assert not db.is_already_retweeted("acct3", "tw_100")
 
 
 class TestAccountStatus:

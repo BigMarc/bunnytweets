@@ -19,11 +19,7 @@
                             <label class="form-label">Account Name</label>
                             <input type="text" class="form-control" name="name"
                                    value="{{ account.name if account else '' }}"
-                                   {% if edit %}readonly{% endif %}
                                    placeholder="e.g. MyMainAccount" required>
-                            {% if edit %}
-                            <small class="form-text text-muted">Name cannot be changed after creation</small>
-                            {% endif %}
                         </div>
                         <div class="col-md-6 d-flex align-items-end">
                             <div class="form-check">
@@ -105,6 +101,60 @@
                                    value="{{ account.posting.default_text if account and account.posting else '' }}"
                                    placeholder="Text to include with every post">
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Collection (Title Categories + CTA) -->
+            <div class="card border-secondary mb-3">
+                <div class="card-header"><i class="bi bi-collection me-2"></i>Collection</div>
+                <div class="card-body">
+                    <!-- Title Categories multi-select -->
+                    <label class="form-label fw-bold">Title Categories</label>
+                    <p class="form-text mt-0 mb-2">Select which title categories the poster picks titles from. "Global" is always included.</p>
+                    <div class="row g-2 mb-3">
+                        {% for cat in all_categories %}
+                        <div class="col-auto">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox"
+                                       name="title_category" value="{{ cat.name }}"
+                                       id="cat-{{ cat.id }}"
+                                       {% if cat.name == 'Global' %}checked disabled{% endif %}
+                                       {% if cat.name in selected_categories %}checked{% endif %}>
+                                <label class="form-check-label" for="cat-{{ cat.id }}">{{ cat.name }}</label>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <!-- Hidden input to ensure Global is always sent -->
+                    <input type="hidden" name="title_category" value="Global">
+
+                    <!-- CTA Texts -->
+                    <hr>
+                    <label class="form-label fw-bold">CTA Texts (Self-Comments)</label>
+                    <p class="form-text mt-0 mb-2">After posting, the bot waits ~1 hour then comments one of these texts under its own tweet.</p>
+
+                    <div id="cta-list">
+                        {% if cta_texts %}
+                            {% for cta in cta_texts %}
+                            <div class="d-flex align-items-start mb-2 cta-item" data-cta-id="{{ cta.id }}">
+                                <span class="form-control form-control-sm bg-dark text-light me-2" style="min-height:auto;">{{ cta.text }}</span>
+                                <button type="button" class="btn btn-sm btn-outline-danger flex-shrink-0" onclick="deleteCta({{ cta.id }}, this)">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                            <p class="text-muted small" id="no-cta-msg">No CTA texts configured yet.</p>
+                        {% endif %}
+                    </div>
+
+                    <div class="input-group mt-2">
+                        <input type="text" class="form-control form-control-sm" id="new-cta-text"
+                               placeholder="e.g. Follow for more content like this!">
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="addCta()">
+                            <i class="bi bi-plus me-1"></i>Add CTA
+                        </button>
                     </div>
                 </div>
             </div>
@@ -203,6 +253,68 @@
                 </div>
             </div>
 
+            <!-- Human Simulation -->
+            <div class="card border-secondary mb-3">
+                <div class="card-header"><i class="bi bi-person-walking me-2"></i>Human Simulation</div>
+                <div class="card-body">
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" name="human_simulation.enabled" id="sim-enabled"
+                               {% if not account or account.get('human_simulation', {}).get('enabled', False) %}checked{% endif %}>
+                        <label class="form-check-label" for="sim-enabled">Enable Human Simulation</label>
+                        <div class="form-text">Bot will scroll, like, and browse like a real user to avoid detection</div>
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-3">
+                            <label class="form-label">Min Duration (min)</label>
+                            <input type="number" class="form-control" name="human_simulation.session_duration_min"
+                                   value="{{ account.human_simulation.session_duration_min if account and account.get('human_simulation') else 30 }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Max Duration (min)</label>
+                            <input type="number" class="form-control" name="human_simulation.session_duration_max"
+                                   value="{{ account.human_simulation.session_duration_max if account and account.get('human_simulation') else 60 }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Daily Sessions</label>
+                            <input type="number" class="form-control" name="human_simulation.daily_sessions_limit"
+                                   value="{{ account.human_simulation.daily_sessions_limit if account and account.get('human_simulation') else 2 }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Daily Likes Limit</label>
+                            <input type="number" class="form-control" name="human_simulation.daily_likes_limit"
+                                   value="{{ account.human_simulation.daily_likes_limit if account and account.get('human_simulation') else 30 }}">
+                        </div>
+                    </div>
+
+                    <!-- Simulation Time Windows -->
+                    <label class="form-label">Simulation Time Windows</label>
+                    <div id="sim-windows-container">
+                        {% set sim_windows = account.human_simulation.time_windows if account and account.get('human_simulation', {}).get('time_windows') else [{'start': '08:00', 'end': '12:00'}, {'start': '18:00', 'end': '23:00'}] %}
+                        {% for w in sim_windows %}
+                        <div class="row g-2 mb-2 sim-window-row">
+                            <div class="col-4">
+                                <input type="text" class="form-control form-control-sm" name="sim_window_{{ loop.index0 }}_start"
+                                       value="{{ w.start }}" placeholder="HH:MM">
+                            </div>
+                            <div class="col-1 text-center pt-1">to</div>
+                            <div class="col-4">
+                                <input type="text" class="form-control form-control-sm" name="sim_window_{{ loop.index0 }}_end"
+                                       value="{{ w.end }}" placeholder="HH:MM">
+                            </div>
+                            <div class="col-3">
+                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRow(this)">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addSimWindow()">
+                        <i class="bi bi-plus me-1"></i>Add Time Window
+                    </button>
+                </div>
+            </div>
+
             <div class="d-flex justify-content-between mb-4">
                 <a href="/accounts" class="btn btn-secondary">
                     <i class="bi bi-arrow-left me-1"></i>Back
@@ -218,4 +330,62 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/accounts.js') }}"></script>
+<script>
+// CTA management (AJAX, not part of the main form submit)
+const accountName = "{{ account.name if account else '' }}";
+
+async function addCta() {
+    const input = document.getElementById('new-cta-text');
+    const text = input.value.trim();
+    if (!text) return;
+
+    try {
+        const resp = await fetch(`/accounts/${encodeURIComponent(accountName)}/cta/add`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({text: text}),
+        });
+        const data = await resp.json();
+        if (data.success) {
+            // Remove "no CTA" message if present
+            const noMsg = document.getElementById('no-cta-msg');
+            if (noMsg) noMsg.remove();
+
+            const list = document.getElementById('cta-list');
+            const html = `
+                <div class="d-flex align-items-start mb-2 cta-item" data-cta-id="${data.id}">
+                    <span class="form-control form-control-sm bg-dark text-light me-2" style="min-height:auto;">${text}</span>
+                    <button type="button" class="btn btn-sm btn-outline-danger flex-shrink-0" onclick="deleteCta(${data.id}, this)">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>`;
+            list.insertAdjacentHTML('beforeend', html);
+            input.value = '';
+            showToast('CTA text added', 'success');
+        } else {
+            showToast(data.message || 'Failed to add CTA', 'danger');
+        }
+    } catch (e) {
+        showToast('Failed to add CTA text', 'danger');
+    }
+}
+
+async function deleteCta(ctaId, btn) {
+    try {
+        const resp = await fetch(`/accounts/${encodeURIComponent(accountName)}/cta/${ctaId}/delete`, {
+            method: 'POST',
+        });
+        const data = await resp.json();
+        if (data.success) {
+            const item = btn.closest('.cta-item');
+            if (item) item.remove();
+            showToast('CTA text deleted', 'success');
+        } else {
+            showToast(data.message || 'Failed to delete CTA', 'danger');
+        }
+    } catch (e) {
+        showToast('Failed to delete CTA text', 'danger');
+    }
+}
+</script>
 {% endblock %}

@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import signal
 import sys
+import threading
 import time
 from datetime import datetime
 from functools import partial
@@ -32,6 +33,7 @@ class Application:
         from src.core.config_loader import ConfigLoader
         from src.core.logger import setup_logging, get_account_logger
         from src.core.database import Database
+        from src.core.notifier import DiscordNotifier
         from src.dolphin_anty.profile_manager import ProfileManager
         from src.google_drive.drive_client import DriveClient
         from src.google_drive.file_monitor import FileMonitor
@@ -78,6 +80,9 @@ class Application:
                 "Drive sync will be disabled."
             )
 
+        # Discord notifier
+        self.notifier = DiscordNotifier.from_config(self.config.discord)
+
         # Scheduler & Queue
         self.job_manager = JobManager(timezone=self.config.timezone)
         self.queue = QueueHandler()
@@ -86,8 +91,10 @@ class Application:
         self._automations: dict = {}
         self._posters: dict = {}
         self._retweeters: dict = {}
+        self._simulators: dict = {}
 
         self._shutdown = False
+        self._ready = threading.Event()
 
     # ------------------------------------------------------------------
     # Browser provider factory
@@ -127,6 +134,7 @@ class Application:
         from src.twitter.automation import TwitterAutomation
         from src.twitter.poster import TwitterPoster
         from src.twitter.retweeter import TwitterRetweeter
+        from src.twitter.human_simulator import HumanSimulator
 
         name = acct["name"]
         twitter_cfg = acct["twitter"]
@@ -138,6 +146,7 @@ class Application:
         except Exception as exc:
             logger.error(f"[{name}] Could not start browser: {exc}")
             self.db.update_account_status(name, status="error", error_message=str(exc))
+            self.notifier.alert_browser_failed(name, str(exc))
             return False
 
         automation = TwitterAutomation(driver, self.config.delays)
@@ -152,18 +161,26 @@ class Application:
             self.db.update_account_status(
                 name, status="error", error_message="Not logged in"
             )
+            self.notifier.alert_not_logged_in(name)
             return False
 
         # Poster
         if self.file_monitor:
             poster = TwitterPoster(
-                automation, self.file_monitor, self.db, name, acct
+                automation, self.file_monitor, self.db, name, acct,
+                notifier=self.notifier,
             )
             self._posters[name] = poster
 
         # Retweeter
-        retweeter = TwitterRetweeter(automation, self.db, name, acct)
+        retweeter = TwitterRetweeter(
+            automation, self.db, name, acct, notifier=self.notifier
+        )
         self._retweeters[name] = retweeter
+
+        # Human simulator
+        simulator = HumanSimulator(automation, self.db, name, acct)
+        self._simulators[name] = simulator
 
         self.db.update_account_status(name, status="idle", error_message=None)
         logger.info(f"[{name}] Account set up successfully")
@@ -206,10 +223,35 @@ class Application:
                 callback=partial(self._enqueue_task, name, "retweet", self._retweeters[name].run_retweet_cycle),
             )
 
+        # Human simulation schedule
+        sim_cfg = acct.get("human_simulation", {})
+        if sim_cfg.get("enabled") and name in self._simulators:
+            self.job_manager.add_simulation_jobs(
+                name,
+                daily_sessions=sim_cfg.get("daily_sessions_limit", 2),
+                time_windows=sim_cfg.get("time_windows", []),
+                callback=partial(self._enqueue_task, name, "simulation", self._simulators[name].run_session),
+            )
+
     def _enqueue_task(self, account_name: str, task_type: str, callback) -> None:
         from src.scheduler.queue_handler import Task
         task = Task(account_name=account_name, task_type=task_type, callback=callback)
         self.queue.submit(task)
+
+    def _check_cta_pending(self) -> None:
+        """Check all accounts for pending CTA comments (posted >55 min ago)."""
+        for name, poster in self._posters.items():
+            status = self.db.get_account_status(name)
+            if not status or not status.cta_pending:
+                continue
+            # Only fire CTA if last post was at least 55 minutes ago
+            if status.last_post:
+                elapsed = (datetime.utcnow() - status.last_post).total_seconds()
+                if elapsed < 55 * 60:
+                    continue
+            logger.info(f"[{name}] CTA comment is due — enqueueing")
+            self.db.update_account_status(name, cta_pending=0)
+            self._enqueue_task(name, "cta_comment", poster.run_cta_comment)
 
     # ------------------------------------------------------------------
     # Run
@@ -254,9 +296,15 @@ class Application:
         # Health check
         self.job_manager.add_health_check(self._health_check, interval_minutes=5)
 
+        # CTA comment check (looks for pending CTAs every 5 min)
+        self.job_manager.add_cta_check_job(self._check_cta_pending, interval_minutes=5)
+
         # Start scheduler & queue
         self.queue.start()
         self.job_manager.start()
+
+        # Signal that the engine is fully ready
+        self._ready.set()
 
         self._print_dashboard()
 
@@ -284,14 +332,85 @@ class Application:
     # Health check
     # ------------------------------------------------------------------
     def _health_check(self) -> None:
-        for name, auto in self._automations.items():
+        for name, auto in list(self._automations.items()):
             try:
                 auto.driver.title  # quick check that the browser is alive
             except Exception as exc:
-                logger.error(f"[{name}] Browser health check failed: {exc}")
+                error_str = str(exc).split("\n")[0]  # first line only
+                logger.error(f"[{name}] Browser health check failed: {error_str}")
                 self.db.update_account_status(
-                    name, status="error", error_message=f"Health check: {exc}"
+                    name, status="error", error_message=f"Health check: {error_str}"
                 )
+                self.notifier.alert_health_check_failed(name, error_str)
+
+                # Attempt auto-recovery by restarting the browser
+                self._try_recover_browser(name)
+
+    def _try_recover_browser(self, name: str) -> None:
+        """Attempt to restart a crashed browser profile and re-wire components."""
+        from src.twitter.automation import TwitterAutomation
+        from src.twitter.poster import TwitterPoster
+        from src.twitter.retweeter import TwitterRetweeter
+        from src.twitter.human_simulator import HumanSimulator
+
+        acct = None
+        for a in self.config.enabled_accounts:
+            if a.get("name") == name:
+                acct = a
+                break
+        if not acct:
+            return
+
+        twitter_cfg = acct["twitter"]
+        profile_id = twitter_cfg.get("profile_id") or twitter_cfg.get("dolphin_profile_id")
+
+        logger.info(f"[{name}] Attempting auto-recovery — restarting browser...")
+        try:
+            # Stop the old profile gracefully
+            try:
+                self.profile_manager.stop_browser(profile_id)
+            except Exception:
+                pass
+
+            time.sleep(3)
+            driver = self.profile_manager.start_browser(profile_id)
+        except Exception as exc:
+            logger.error(f"[{name}] Auto-recovery failed: {exc}")
+            self.notifier.alert_generic(name, "Auto-Recovery Failed", str(exc))
+            return
+
+        automation = TwitterAutomation(driver, self.config.delays)
+        self._automations[name] = automation
+
+        if not automation.is_logged_in():
+            logger.warning(f"[{name}] Recovered browser but not logged in to Twitter")
+            self.db.update_account_status(name, status="error", error_message="Not logged in after recovery")
+            self.notifier.alert_not_logged_in(name)
+            return
+
+        # Re-wire poster, retweeter, simulator with the new automation instance
+        if self.file_monitor:
+            poster = TwitterPoster(
+                automation, self.file_monitor, self.db, name, acct,
+                notifier=self.notifier,
+            )
+            self._posters[name] = poster
+
+        retweeter = TwitterRetweeter(
+            automation, self.db, name, acct, notifier=self.notifier
+        )
+        self._retweeters[name] = retweeter
+
+        simulator = HumanSimulator(automation, self.db, name, acct)
+        self._simulators[name] = simulator
+
+        self.db.update_account_status(name, status="idle", error_message=None)
+        logger.info(f"[{name}] Auto-recovery successful — browser restarted")
+        self.notifier.send(
+            title="Auto-Recovery Successful",
+            description=f"**{name}** browser was restarted automatically.",
+            color=0x00CC00,
+        )
 
     # ------------------------------------------------------------------
     # Dashboard

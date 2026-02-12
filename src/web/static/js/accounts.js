@@ -88,14 +88,45 @@ function addWindow() {
     reindexRows('windows-container', 'window-row', 'window_');
 }
 
+// Dynamic form rows for simulation time windows
+let simWindowCount = document.querySelectorAll('.sim-window-row').length;
+
+function addSimWindow() {
+    const container = document.getElementById('sim-windows-container');
+    if (!container) return;
+
+    const idx = simWindowCount++;
+    const html = `
+        <div class="row g-2 mb-2 sim-window-row">
+            <div class="col-4">
+                <input type="text" class="form-control form-control-sm"
+                       name="sim_window_${idx}_start" placeholder="HH:MM">
+            </div>
+            <div class="col-1 text-center pt-1">to</div>
+            <div class="col-4">
+                <input type="text" class="form-control form-control-sm"
+                       name="sim_window_${idx}_end" placeholder="HH:MM">
+            </div>
+            <div class="col-3">
+                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRow(this)">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </div>
+        </div>`;
+    container.insertAdjacentHTML('beforeend', html);
+    reindexRows('sim-windows-container', 'sim-window-row', 'sim_window_');
+}
+
 function removeRow(btn) {
-    const row = btn.closest('.target-row, .window-row');
+    const row = btn.closest('.target-row, .window-row, .sim-window-row');
     if (row) {
         const container = row.parentElement;
         row.remove();
         // Reindex remaining rows
         if (container.id === 'targets-container') {
             reindexRows('targets-container', 'target-row', 'target_');
+        } else if (container.id === 'sim-windows-container') {
+            reindexRows('sim-windows-container', 'sim-window-row', 'sim_window_');
         } else {
             reindexRows('windows-container', 'window-row', 'window_');
         }
@@ -122,4 +153,5 @@ function reindexRows(containerId, rowClass, prefix) {
 
     if (prefix === 'target_') targetCount = rows.length;
     if (prefix === 'window_') windowCount = rows.length;
+    if (prefix === 'sim_window_') simWindowCount = rows.length;
 }

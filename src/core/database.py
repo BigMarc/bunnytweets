@@ -1,20 +1,27 @@
 from __future__ import annotations
 
+import random
 from datetime import datetime, date
 from pathlib import Path
 
 from sqlalchemy import (
     create_engine,
+    inspect,
+    text as sa_text,
     Column,
     Integer,
     String,
     DateTime,
     Text,
+    ForeignKey,
     func,
 )
-from sqlalchemy.orm import declarative_base, sessionmaker, Session
+from sqlalchemy.orm import declarative_base, sessionmaker, Session, relationship
 
 Base = declarative_base()
+
+# Default title categories seeded on first run
+DEFAULT_CATEGORIES = ["Global", "Pick-me", "BBW", "ALT", "BDSM", "Petite", "GND"]
 
 
 class ProcessedFile(Base):
@@ -22,11 +29,40 @@ class ProcessedFile(Base):
 
     id = Column(Integer, primary_key=True)
     account_name = Column(String, index=True, nullable=False)
-    file_id = Column(String, unique=True, nullable=False)
+    file_id = Column(String, nullable=False)
     file_name = Column(String)
     processed_at = Column(DateTime, default=datetime.utcnow)
     tweet_id = Column(String)
     status = Column(String, default="pending")  # success | failed | pending
+    use_count = Column(Integer, default=0)
+
+
+class TitleCategory(Base):
+    __tablename__ = "title_categories"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String, unique=True, nullable=False)
+    titles = relationship("Title", back_populates="category", cascade="all, delete-orphan")
+
+
+class Title(Base):
+    __tablename__ = "titles"
+
+    id = Column(Integer, primary_key=True)
+    text = Column(Text, nullable=False)
+    category_id = Column(Integer, ForeignKey("title_categories.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    category = relationship("TitleCategory", back_populates="titles")
+
+
+class CtaText(Base):
+    """Call-to-action texts that the bot comments on its own posts after a delay."""
+    __tablename__ = "cta_texts"
+
+    id = Column(Integer, primary_key=True)
+    account_name = Column(String, index=True, nullable=False)
+    text = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class Retweet(Base):
@@ -35,7 +71,7 @@ class Retweet(Base):
     id = Column(Integer, primary_key=True)
     account_name = Column(String, index=True, nullable=False)
     target_username = Column(String, nullable=False)
-    tweet_id = Column(String, unique=True, nullable=False)
+    tweet_id = Column(String, index=True, nullable=False)
     retweeted_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -47,8 +83,15 @@ class AccountStatus(Base):
     last_retweet = Column(DateTime)
     retweets_today = Column(Integer, default=0)
     retweets_date = Column(String)  # YYYY-MM-DD – used to reset counter daily
-    status = Column(String, default="idle")  # idle | running | paused | error
+    status = Column(String, default="idle")  # idle | running | browsing | paused | error
     error_message = Column(Text)
+    # Human simulation tracking
+    sim_date = Column(String)          # YYYY-MM-DD – reset daily
+    sim_sessions_today = Column(Integer, default=0)
+    sim_likes_today = Column(Integer, default=0)
+    # CTA self-comment tracking
+    cta_pending = Column(Integer, default=0)  # 1 = needs CTA comment
+    last_cta = Column(DateTime)
 
 
 class Database:
@@ -58,25 +101,129 @@ class Database:
         path = Path(db_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         self.engine = create_engine(f"sqlite:///{path}", echo=False)
+        self._migrate_retweets_table()
         Base.metadata.create_all(self.engine)
+        self._migrate_add_columns()
         self._Session = sessionmaker(bind=self.engine)
+        self._seed_categories()
+
+    def _migrate_retweets_table(self) -> None:
+        """Drop the old retweets table if it has a unique constraint on tweet_id."""
+        insp = inspect(self.engine)
+        if "retweets" not in insp.get_table_names():
+            return
+        for uq in insp.get_unique_constraints("retweets"):
+            if "tweet_id" in uq.get("column_names", []):
+                Retweet.__table__.drop(self.engine)
+                return
+
+    def _migrate_add_columns(self) -> None:
+        """Add new columns to existing tables if they're missing (SQLite)."""
+        insp = inspect(self.engine)
+        migrations = {
+            "account_status": {
+                "sim_date": "VARCHAR",
+                "sim_sessions_today": "INTEGER DEFAULT 0",
+                "sim_likes_today": "INTEGER DEFAULT 0",
+                "cta_pending": "INTEGER DEFAULT 0",
+                "last_cta": "DATETIME",
+            },
+            "processed_files": {
+                "use_count": "INTEGER DEFAULT 0",
+            },
+        }
+        with self.engine.connect() as conn:
+            for table, cols in migrations.items():
+                if table not in insp.get_table_names():
+                    continue
+                existing = {c["name"] for c in insp.get_columns(table)}
+                for col_name, col_type in cols.items():
+                    if col_name not in existing:
+                        conn.execute(
+                            sa_text(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_type}")
+                        )
+                        conn.commit()
+
+        # Drop unique constraint on processed_files.file_id if it exists
+        # (rotation requires the same file_id for different accounts)
+        if "processed_files" in insp.get_table_names():
+            for uq in insp.get_unique_constraints("processed_files"):
+                if "file_id" in uq.get("column_names", []):
+                    ProcessedFile.__table__.drop(self.engine)
+                    Base.metadata.create_all(self.engine)
+                    return
+
+    def _seed_categories(self) -> None:
+        """Ensure default title categories exist."""
+        with self.session() as s:
+            for name in DEFAULT_CATEGORIES:
+                existing = s.query(TitleCategory).filter_by(name=name).first()
+                if not existing:
+                    s.add(TitleCategory(name=name))
+            s.commit()
 
     def session(self) -> Session:
         return self._Session()
 
-    # ----- Processed files -----
+    # ----- Processed files / Content rotation -----
     def is_file_processed(self, file_id: str) -> bool:
+        """Legacy check: returns True if the file has been used at least once."""
         with self.session() as s:
-            return s.query(ProcessedFile).filter_by(file_id=file_id).first() is not None
+            row = s.query(ProcessedFile).filter_by(file_id=file_id).first()
+            return row is not None and (row.use_count or 0) > 0
 
-    def mark_file_processed(
-        self, account_name: str, file_id: str, file_name: str, tweet_id: str | None = None, status: str = "success"
-    ) -> None:
+    def get_file_use_count(self, account_name: str, file_id: str) -> int:
+        """Return how many times a file has been used by an account."""
         with self.session() as s:
-            existing = s.query(ProcessedFile).filter_by(file_id=file_id).first()
-            if existing:
-                existing.tweet_id = tweet_id
-                existing.status = status
+            row = (
+                s.query(ProcessedFile)
+                .filter_by(account_name=account_name, file_id=file_id)
+                .first()
+            )
+            if not row:
+                return 0
+            return row.use_count or 0
+
+    def get_least_used_file(self, account_name: str, file_ids: list[str]) -> str | None:
+        """Pick the file_id with the lowest use_count for this account.
+
+        Files never used before (use_count=0) are preferred.
+        Among equally-used files, one is picked at random.
+        """
+        if not file_ids:
+            return None
+
+        with self.session() as s:
+            # Build dict of file_id -> use_count
+            counts: dict[str, int] = {}
+            for fid in file_ids:
+                row = (
+                    s.query(ProcessedFile)
+                    .filter_by(account_name=account_name, file_id=fid)
+                    .first()
+                )
+                counts[fid] = (row.use_count or 0) if row else 0
+
+        min_count = min(counts.values())
+        candidates = [fid for fid, c in counts.items() if c == min_count]
+        return random.choice(candidates)
+
+    def increment_file_use(
+        self, account_name: str, file_id: str, file_name: str,
+        tweet_id: str | None = None, status: str = "success",
+    ) -> None:
+        """Record a file usage: create or increment use_count."""
+        with self.session() as s:
+            row = (
+                s.query(ProcessedFile)
+                .filter_by(account_name=account_name, file_id=file_id)
+                .first()
+            )
+            if row:
+                row.use_count = (row.use_count or 0) + 1
+                row.processed_at = datetime.utcnow()
+                row.tweet_id = tweet_id
+                row.status = status
             else:
                 s.add(ProcessedFile(
                     account_name=account_name,
@@ -84,13 +231,149 @@ class Database:
                     file_name=file_name,
                     tweet_id=tweet_id,
                     status=status,
+                    use_count=1,
                 ))
             s.commit()
 
-    # ----- Retweets -----
-    def is_already_retweeted(self, tweet_id: str) -> bool:
+    def mark_file_processed(
+        self, account_name: str, file_id: str, file_name: str,
+        tweet_id: str | None = None, status: str = "success",
+    ) -> None:
+        """Legacy wrapper — now delegates to increment_file_use."""
+        self.increment_file_use(account_name, file_id, file_name, tweet_id, status)
+
+    # ----- Title categories -----
+    def get_all_categories(self) -> list[TitleCategory]:
         with self.session() as s:
-            return s.query(Retweet).filter_by(tweet_id=tweet_id).first() is not None
+            return s.query(TitleCategory).order_by(TitleCategory.name).all()
+
+    def get_category(self, category_id: int) -> TitleCategory | None:
+        with self.session() as s:
+            return s.query(TitleCategory).get(category_id)
+
+    def get_category_by_name(self, name: str) -> TitleCategory | None:
+        with self.session() as s:
+            return s.query(TitleCategory).filter_by(name=name).first()
+
+    def add_category(self, name: str) -> TitleCategory:
+        with self.session() as s:
+            cat = TitleCategory(name=name)
+            s.add(cat)
+            s.commit()
+            s.refresh(cat)
+            return cat
+
+    def delete_category(self, category_id: int) -> bool:
+        with self.session() as s:
+            cat = s.query(TitleCategory).get(category_id)
+            if not cat:
+                return False
+            s.delete(cat)
+            s.commit()
+            return True
+
+    # ----- Titles -----
+    def get_titles_by_category(self, category_id: int) -> list[Title]:
+        with self.session() as s:
+            return (
+                s.query(Title)
+                .filter_by(category_id=category_id)
+                .order_by(Title.created_at.desc())
+                .all()
+            )
+
+    def get_titles_by_category_names(self, category_names: list[str]) -> list[Title]:
+        """Get all titles belonging to the named categories."""
+        with self.session() as s:
+            cats = (
+                s.query(TitleCategory)
+                .filter(TitleCategory.name.in_(category_names))
+                .all()
+            )
+            cat_ids = [c.id for c in cats]
+            if not cat_ids:
+                return []
+            return (
+                s.query(Title)
+                .filter(Title.category_id.in_(cat_ids))
+                .all()
+            )
+
+    def get_random_title(self, category_names: list[str]) -> str | None:
+        """Pick a random title from the given categories.
+
+        Always includes "Global" category.
+        """
+        names = list(set(category_names) | {"Global"})
+        titles = self.get_titles_by_category_names(names)
+        if not titles:
+            return None
+        return random.choice(titles).text
+
+    def add_title(self, text: str, category_id: int) -> Title:
+        with self.session() as s:
+            title = Title(text=text, category_id=category_id)
+            s.add(title)
+            s.commit()
+            s.refresh(title)
+            return title
+
+    def delete_title(self, title_id: int) -> bool:
+        with self.session() as s:
+            title = s.query(Title).get(title_id)
+            if not title:
+                return False
+            s.delete(title)
+            s.commit()
+            return True
+
+    def get_all_titles(self) -> list[Title]:
+        with self.session() as s:
+            return s.query(Title).order_by(Title.category_id, Title.created_at.desc()).all()
+
+    # ----- CTA texts -----
+    def get_cta_texts(self, account_name: str) -> list[CtaText]:
+        with self.session() as s:
+            return (
+                s.query(CtaText)
+                .filter_by(account_name=account_name)
+                .order_by(CtaText.created_at.desc())
+                .all()
+            )
+
+    def get_random_cta(self, account_name: str) -> str | None:
+        """Pick a random CTA text for an account."""
+        ctas = self.get_cta_texts(account_name)
+        if not ctas:
+            return None
+        return random.choice(ctas).text
+
+    def add_cta_text(self, account_name: str, text: str) -> CtaText:
+        with self.session() as s:
+            cta = CtaText(account_name=account_name, text=text)
+            s.add(cta)
+            s.commit()
+            s.refresh(cta)
+            return cta
+
+    def delete_cta_text(self, cta_id: int) -> bool:
+        with self.session() as s:
+            cta = s.query(CtaText).get(cta_id)
+            if not cta:
+                return False
+            s.delete(cta)
+            s.commit()
+            return True
+
+    # ----- Retweets -----
+    def is_already_retweeted(self, account_name: str, tweet_id: str) -> bool:
+        with self.session() as s:
+            return (
+                s.query(Retweet)
+                .filter_by(account_name=account_name, tweet_id=tweet_id)
+                .first()
+                is not None
+            )
 
     def record_retweet(self, account_name: str, target_username: str, tweet_id: str) -> None:
         with self.session() as s:
