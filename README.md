@@ -155,7 +155,7 @@ The easiest way to manage everything. Launch the dashboard and configure through
 python main.py --web
 ```
 
-Then open **http://localhost:5000** in your browser. You can edit all settings, manage accounts, view logs, and control the automation engine - all from the web UI. See the [Web Dashboard Guide](#web-dashboard-guide) section for details.
+Then open **http://localhost:8080** in your browser. You can edit all settings, manage accounts, view logs, and control the automation engine - all from the web UI. See the [Web Dashboard Guide](#web-dashboard-guide) section for details.
 
 ### Option B: Setup Wizard (CLI)
 
@@ -358,7 +358,7 @@ Supported file types: `jpg`, `png`, `gif`, `webp`, `mp4`, `mov`, `txt`
 python main.py --web
 ```
 
-This starts the BunnyTweets web dashboard at **http://localhost:5000**. From here you can:
+This starts the BunnyTweets web dashboard at **http://localhost:8080**. From here you can:
 - View live status of all accounts
 - Edit global settings and account configurations
 - Start/stop the automation engine
@@ -391,7 +391,7 @@ This starts the automation engine directly in the terminal. It will:
 | Command | Description |
 |---------|-------------|
 | `python main.py` | Start the automation engine (all enabled accounts) |
-| `python main.py --web` | Launch the web dashboard (http://localhost:5000) |
+| `python main.py --web` | Launch the web dashboard (http://localhost:8080) |
 | `python main.py --web --port 8080` | Launch the dashboard on a custom port |
 | `python main.py --setup` | Run the interactive first-time setup wizard |
 | `python main.py --add-account` | Add a new account to your existing config |
@@ -691,9 +691,9 @@ To run the web dashboard instead of the CLI automation:
 
 ```yaml
 # In docker-compose.yml, change the command:
-    command: ["python", "main.py", "--web", "--port", "5000"]
+    command: ["python", "main.py", "--web", "--port", "8080"]
     ports:
-      - "5000:5000"
+      - "8080:8080"
 ```
 
 ### VPS Setup Script
@@ -839,8 +839,8 @@ Twitter has rate limits:
 ### Web Dashboard Not Loading
 
 1. Make sure Flask is installed: `pip install flask==3.0.0`
-2. Check if port 5000 is available: `lsof -i :5000`
-3. Try a different port: `python main.py --web --port 8080`
+2. Check if port 8080 is available: `lsof -i :8080`
+3. Try a different port: `python main.py --web --port 9000`
 4. Check the terminal output for error messages
 
 ### View Logs
@@ -848,7 +848,7 @@ Twitter has rate limits:
 **Via Web Dashboard:**
 ```bash
 python main.py --web
-# Then go to http://localhost:5000/logs
+# Then go to http://localhost:8080/logs
 ```
 
 **Via Terminal:**

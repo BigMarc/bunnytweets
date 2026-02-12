@@ -21,11 +21,15 @@ class GoLoginClient:
     def __init__(self, host: str = "localhost", port: int = 36912, api_token: str = ""):
         self.base_url = f"http://{host}:{port}"
         self.api_token = api_token
-        self.headers: dict[str, str] = {
+        # POST headers for local API (start/stop profile) — needs Content-Type
+        self._post_headers: dict[str, str] = {
             "Content-Type": "application/json",
         }
+        # GET headers for remote API (list/get profiles) — no Content-Type
+        self._get_headers: dict[str, str] = {}
         if api_token:
-            self.headers["Authorization"] = f"Bearer {api_token}"
+            self._post_headers["Authorization"] = f"Bearer {api_token}"
+            self._get_headers["Authorization"] = f"Bearer {api_token}"
         self._authenticated = False
 
     # ------------------------------------------------------------------
@@ -47,7 +51,8 @@ class GoLoginClient:
             return False
 
         self.api_token = token
-        self.headers["Authorization"] = f"Bearer {token}"
+        self._post_headers["Authorization"] = f"Bearer {token}"
+        self._get_headers["Authorization"] = f"Bearer {token}"
         self._authenticated = True
         logger.info("GoLogin API configured with bearer token")
         return True
@@ -78,7 +83,7 @@ class GoLoginClient:
 
         url = f"{self.base_url}/browser/start-profile"
         logger.debug(f"POST {url} body={json_data}")
-        resp = requests.post(url, headers=self.headers, json=json_data, timeout=120)
+        resp = requests.post(url, headers=self._post_headers, json=json_data, timeout=120)
         if not resp.ok:
             logger.error(f"POST start-profile failed ({resp.status_code}): {resp.text}")
         resp.raise_for_status()
@@ -116,7 +121,7 @@ class GoLoginClient:
         logger.debug(f"POST {url}")
         resp = requests.post(
             url,
-            headers=self.headers,
+            headers=self._post_headers,
             json={"profileId": profile_id},
             timeout=30,
         )
@@ -137,7 +142,7 @@ class GoLoginClient:
         logger.debug(f"GET {url}")
         resp = requests.get(
             url,
-            headers=self.headers,
+            headers=self._get_headers,
             timeout=30,
         )
         if not resp.ok:
@@ -152,7 +157,7 @@ class GoLoginClient:
         """
         url = f"{self.REMOTE_API_BASE}/browser/{profile_id}"
         logger.debug(f"GET {url}")
-        resp = requests.get(url, headers=self.headers, timeout=30)
+        resp = requests.get(url, headers=self._get_headers, timeout=30)
         if not resp.ok:
             logger.error(
                 f"GET /browser/{profile_id} failed ({resp.status_code}): {resp.text}"
