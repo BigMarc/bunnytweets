@@ -98,10 +98,12 @@ class DolphinAntyClient:
         Endpoint: POST /browser_profiles/{profile_id}/start
         Body: {"automation": true[, "headless": true]}
 
-        Returns dict with:
-          - success: bool
-          - automation.port  (Chrome debug port)
-          - automation.wsEndpoint
+        Returns a normalised dict::
+
+            {"port": int, "ws_endpoint": str}
+
+        so that ProfileManager can connect Selenium identically for both
+        Dolphin Anty and GoLogin.
         """
         logger.info(f"Starting Dolphin Anty profile {profile_id} (headless={headless})")
         json_data: dict = {"automation": True}
@@ -112,7 +114,12 @@ class DolphinAntyClient:
 
         if not data.get("success", False):
             raise RuntimeError(f"Failed to start profile {profile_id}: {data}")
-        return data
+
+        automation = data.get("automation", {})
+        return {
+            "port": automation.get("port"),
+            "ws_endpoint": automation.get("wsEndpoint"),
+        }
 
     def stop_profile(self, profile_id: str) -> dict:
         """Stop a running browser profile.

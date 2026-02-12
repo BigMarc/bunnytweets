@@ -41,13 +41,15 @@ class ConfigLoader:
 
     def _apply_env_overrides(self) -> None:
         """Override settings with environment variables when present."""
+        # Browser provider
+        provider = os.getenv("BROWSER_PROVIDER")
+        if provider:
+            self.settings["browser_provider"] = provider
+
+        # Dolphin Anty overrides
         token = os.getenv("DOLPHIN_ANTY_TOKEN")
         if token:
             self.settings.setdefault("dolphin_anty", {})["api_token"] = token
-
-        creds = os.getenv("GOOGLE_CREDENTIALS_FILE")
-        if creds:
-            self.settings.setdefault("google_drive", {})["credentials_file"] = creds
 
         host = os.getenv("DOLPHIN_ANTY_HOST")
         if host:
@@ -56,6 +58,24 @@ class ConfigLoader:
         port = os.getenv("DOLPHIN_ANTY_PORT")
         if port:
             self.settings.setdefault("dolphin_anty", {})["port"] = int(port)
+
+        # GoLogin overrides
+        gl_token = os.getenv("GOLOGIN_TOKEN")
+        if gl_token:
+            self.settings.setdefault("gologin", {})["api_token"] = gl_token
+
+        gl_host = os.getenv("GOLOGIN_HOST")
+        if gl_host:
+            self.settings.setdefault("gologin", {})["host"] = gl_host
+
+        gl_port = os.getenv("GOLOGIN_PORT")
+        if gl_port:
+            self.settings.setdefault("gologin", {})["port"] = int(gl_port)
+
+        # Google Drive
+        creds = os.getenv("GOOGLE_CREDENTIALS_FILE")
+        if creds:
+            self.settings.setdefault("google_drive", {})["credentials_file"] = creds
 
     # ------------------------------------------------------------------
     # Convenience accessors
@@ -71,6 +91,15 @@ class ConfigLoader:
     @property
     def timezone(self) -> str:
         return self.settings.get("timezone", "America/New_York")
+
+    @property
+    def browser_provider(self) -> str:
+        """Return the configured browser provider: 'gologin' (default) or 'dolphin_anty'."""
+        return self.settings.get("browser_provider", "gologin")
+
+    @property
+    def gologin(self) -> dict:
+        return self.settings.get("gologin", {})
 
     @property
     def dolphin_anty(self) -> dict:

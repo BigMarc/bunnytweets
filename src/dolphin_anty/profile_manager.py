@@ -4,30 +4,33 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from loguru import logger
 
-from src.dolphin_anty.api_client import DolphinAntyClient
-
 
 class ProfileManager:
-    """Manages Dolphin Anty browser profiles and provides Selenium WebDriver instances.
+    """Manages anti-detect browser profiles and provides Selenium WebDriver instances.
 
-    Workflow per the Dolphin Anty docs:
-      1. ``DolphinAntyClient.authenticate()`` – POST /auth/login-with-token
-      2. ``start_profile()`` – POST /browser_profiles/{id}/start
-         body: {"automation": true}, returns ``{ automation: { port, wsEndpoint } }``
-      3. Connect Selenium to ``127.0.0.1:{port}`` via Chrome debugger address
-      4. ``stop_profile()`` – GET /browser_profiles/{id}/stop
+    Works with any browser provider client (GoLogin or Dolphin Anty) that
+    implements the following interface:
+
+        - ``start_profile(profile_id, headless) -> {"port": int, "ws_endpoint": str}``
+        - ``stop_profile(profile_id) -> dict``
+
+    Workflow:
+      1. Provider client authenticates (provider-specific).
+      2. ``start_profile()`` – starts a browser profile, returns debug port.
+      3. Connect Selenium to ``127.0.0.1:{port}`` via Chrome debugger address.
+      4. ``stop_profile()`` – stops the browser profile.
     """
 
-    def __init__(self, client: DolphinAntyClient, browser_settings: dict | None = None):
+    def __init__(self, client, browser_settings: dict | None = None):
         self.client = client
         self.browser_settings = browser_settings or {}
         self._drivers: dict[str, webdriver.Chrome] = {}
 
     def start_browser(self, profile_id: str) -> webdriver.Chrome:
-        """Start a Dolphin Anty profile and connect Selenium to it.
+        """Start a browser profile and connect Selenium to it.
 
-        The profile is started via the local API which returns a Chrome
-        DevTools debug port. Selenium then attaches to that port.
+        The profile is started via the provider's local API which returns a
+        Chrome DevTools debug port. Selenium then attaches to that port.
         """
         if profile_id in self._drivers:
             logger.debug(f"Driver already exists for profile {profile_id}, reusing")
@@ -36,9 +39,8 @@ class ProfileManager:
         headless = self.browser_settings.get("headless", False)
         result = self.client.start_profile(profile_id, headless=headless)
 
-        automation = result.get("automation", {})
-        port = automation.get("port")
-        ws_endpoint = automation.get("wsEndpoint")
+        port = result.get("port")
+        ws_endpoint = result.get("ws_endpoint")
 
         if not port:
             raise RuntimeError(
@@ -64,11 +66,10 @@ class ProfileManager:
         return driver
 
     def stop_browser(self, profile_id: str) -> None:
-        """Disconnect Selenium and stop the Dolphin Anty profile.
+        """Disconnect Selenium and stop the browser profile.
 
-        Important: we only call ``driver.quit()`` to release the Selenium
-        session; the actual browser process is stopped by the Dolphin Anty
-        ``/stop`` endpoint.
+        We call ``driver.quit()`` to release the Selenium session, then
+        use the provider's stop endpoint to close the browser process.
         """
         driver = self._drivers.pop(profile_id, None)
         if driver:
@@ -80,7 +81,7 @@ class ProfileManager:
         try:
             self.client.stop_profile(profile_id)
         except Exception as exc:
-            logger.warning(f"Error stopping Dolphin profile {profile_id}: {exc}")
+            logger.warning(f"Error stopping profile {profile_id}: {exc}")
 
     def get_driver(self, profile_id: str) -> webdriver.Chrome | None:
         return self._drivers.get(profile_id)
