@@ -82,11 +82,47 @@ Jeder Account braucht:
 
 ### 3. Google Drive API Setup
 
-1. Erstelle ein Google Cloud Projekt unter https://console.cloud.google.com/
-2. Aktiviere die **Google Drive API**
-3. Erstelle einen **Service Account** und lade die JSON-Datei herunter
-4. Speichere die JSON-Datei als `config/credentials/google_credentials.json`
-5. Teile die Google Drive Ordner mit der E-Mail-Adresse des Service Accounts
+> **Wichtig:** Du brauchst einen **Service Account** (NICHT "OAuth 2.0 Client ID").
+> Ein Service Account arbeitet automatisch im Hintergrund ohne Browser-Login –
+> genau das, was eine Automation braucht.
+
+**Schritt 1 – Google Cloud Projekt erstellen**
+1. Gehe zu https://console.cloud.google.com/
+2. Klicke oben auf "Projekt auswaehlen" > "Neues Projekt"
+3. Gib einen Namen ein (z.B. "BunnyTweets"), klicke "Erstellen"
+
+**Schritt 2 – Google Drive API aktivieren**
+1. Im Projekt: Gehe zu **APIs & Services > Bibliothek**
+2. Suche nach "Google Drive API"
+3. Klicke darauf, dann auf **Aktivieren**
+
+**Schritt 3 – Service Account erstellen**
+1. Gehe zu **APIs & Services > Anmeldedaten** (Credentials)
+2. Klicke oben auf **+ Anmeldedaten erstellen**
+3. Waehle **Dienstkonto** (Service Account) – NICHT "OAuth-Client-ID"
+4. Gib einen Namen ein (z.B. "bunnytweets-drive"), klicke "Erstellen"
+5. Ueberspringe die optionalen Berechtigungsschritte, klicke "Fertig"
+6. Klicke auf das neu erstellte Dienstkonto in der Liste
+7. Gehe zum Tab **Schluessel** (Keys)
+8. Klicke **Schluessel hinzufuegen > Neuen Schluessel erstellen > JSON**
+9. Eine `.json`-Datei wird heruntergeladen – das sind deine Zugangsdaten
+10. Speichere sie als `config/credentials/google_credentials.json` im Projekt
+
+**Schritt 4 – Drive-Ordner mit dem Service Account teilen**
+1. Oeffne die heruntergeladene JSON-Datei und finde das Feld `"client_email"` – es sieht so aus:
+   ```
+   bunnytweets-drive@dein-projekt.iam.gserviceaccount.com
+   ```
+2. Gehe zu Google Drive im Browser
+3. Fuer jeden Ordner, den BunnyTweets lesen soll:
+   - Rechtsklick auf den Ordner > **Freigeben**
+   - Fuege die `client_email`-Adresse als Betrachter (Viewer) hinzu
+   - Klicke "Senden"
+
+**Schritt 5 – Ordner-ID ermitteln**
+- Oeffne den Ordner in Google Drive
+- Die URL sieht so aus: `https://drive.google.com/drive/folders/1ABCdefGHIjklMNO`
+- Der Teil nach `/folders/` ist deine `folder_id` fuer `accounts.yaml`
 
 ### 4. Dolphin Anty Setup
 
