@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import signal
 import sys
+import threading
 import time
 from datetime import datetime
 from functools import partial
@@ -88,6 +89,7 @@ class Application:
         self._retweeters: dict = {}
 
         self._shutdown = False
+        self._ready = threading.Event()
 
     # ------------------------------------------------------------------
     # Browser provider factory
@@ -257,6 +259,9 @@ class Application:
         # Start scheduler & queue
         self.queue.start()
         self.job_manager.start()
+
+        # Signal that the engine is fully ready
+        self._ready.set()
 
         self._print_dashboard()
 

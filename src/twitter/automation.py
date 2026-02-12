@@ -149,8 +149,10 @@ class TwitterAutomation:
 
             # Upload media files
             if media_files:
-                file_input = self.driver.find_element(
-                    By.CSS_SELECTOR, 'input[data-testid="fileInput"]'
+                file_input = WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located(
+                        (By.CSS_SELECTOR, 'input[data-testid="fileInput"]')
+                    )
                 )
                 for mf in media_files:
                     abs_path = str(mf.resolve())

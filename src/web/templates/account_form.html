@@ -19,11 +19,7 @@
                             <label class="form-label">Account Name</label>
                             <input type="text" class="form-control" name="name"
                                    value="{{ account.name if account else '' }}"
-                                   {% if edit %}readonly{% endif %}
                                    placeholder="e.g. MyMainAccount" required>
-                            {% if edit %}
-                            <small class="form-text text-muted">Name cannot be changed after creation</small>
-                            {% endif %}
                         </div>
                         <div class="col-md-6 d-flex align-items-end">
                             <div class="form-check">

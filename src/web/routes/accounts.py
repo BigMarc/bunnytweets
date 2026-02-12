@@ -75,7 +75,6 @@ def edit_save(name):
         return redirect(url_for("accounts.index"))
 
     acct = _parse_account_form(request.form)
-    acct["name"] = name  # Name is read-only on edit
     data["accounts"][idx] = acct
     state.save_accounts(data)
 
