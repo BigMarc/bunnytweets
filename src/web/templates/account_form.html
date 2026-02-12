@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if edit else 'Add' }} Account - BunnyTweets{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <h4 class="mb-3">
+            <i class="bi bi-{{ 'pencil' if edit else 'plus-lg' }} me-2"></i>
+            {{ 'Edit' if edit else 'Add' }} Account
+        </h4>
+
+        <form method="POST">
+            <!-- Basic Info -->
+            <div class="card border-secondary mb-3">
+                <div class="card-header">Basic Info</div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Account Name</label>
+                            <input type="text" class="form-control" name="name"
+                                   value="{{ account.name if account else '' }}"
+                                   {% if edit %}readonly{% endif %}
+                                   placeholder="e.g. MyMainAccount" required>
+                            {% if edit %}
+                            <small class="form-text text-muted">Name cannot be changed after creation</small>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6 d-flex align-items-end">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="enabled" id="enabled"
+                                       {% if not edit or (account and account.get('enabled', True)) %}checked{% endif %}>
+                                <label class="form-check-label" for="enabled">Enabled</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Twitter -->
+            <div class="card border-secondary mb-3">
+                <div class="card-header"><i class="bi bi-twitter me-2"></i>Twitter</div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Username</label>
+                            <input type="text" class="form-control" name="twitter.username"
+                                   value="{{ account.twitter.username if account and account.twitter else '' }}"
+                                   placeholder="@yourhandle" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Browser Profile ID ({{ provider }})</label>
+                            <input type="text" class="form-control" name="twitter.profile_id"
+                                   value="{{ account.twitter.profile_id if account and account.twitter else '' }}"
+                                   placeholder="Profile ID from {{ provider }}" required>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Google Drive (optional) -->
+            <div class="card border-secondary mb-3">
+                <div class="card-header"><i class="bi bi-google me-2"></i>Google Drive (Optional)</div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-8">
+                            <label class="form-label">Folder ID</label>
+                            <input type="text" class="form-control" name="google_drive.folder_id"
+                                   value="{{ account.google_drive.folder_id if account and account.google_drive else '' }}"
+                                   placeholder="Leave empty to skip Drive integration">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Check Interval (min)</label>
+                            <input type="number" class="form-control" name="google_drive.check_interval_minutes"
+                                   value="{{ account.google_drive.check_interval_minutes if account and account.google_drive else 15 }}">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Posting -->
+            <div class="card border-secondary mb-3">
+                <div class="card-header"><i class="bi bi-send me-2"></i>Posting</div>
+                <div class="card-body">
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" name="posting.enabled" id="posting-enabled"
+                               {% if not account or account.get('posting', {}).get('enabled', True) %}checked{% endif %}>
+                        <label class="form-check-label" for="posting-enabled">Enable Posting</label>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-md-8">
+                            <label class="form-label">Schedule (comma-separated HH:MM)</label>
+                            {% set schedule_times = [] %}
+                            {% if account and account.get('posting', {}).get('schedule') %}
+                                {% for s in account.posting.schedule %}
+                                    {% if schedule_times.append(s.time if s is mapping else s) %}{% endif %}
+                                {% endfor %}
+                            {% endif %}
+                            <input type="text" class="form-control" name="posting.schedule"
+                                   value="{{ schedule_times|join(', ') if schedule_times else '09:00, 15:00, 20:00' }}"
+                                   placeholder="09:00, 15:00, 20:00">
+                        </div>
+                        <div class="col-md-12">
+                            <label class="form-label">Default Text (optional)</label>
+                            <input type="text" class="form-control" name="posting.default_text"
+                                   value="{{ account.posting.default_text if account and account.posting else '' }}"
+                                   placeholder="Text to include with every post">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Retweeting -->
+            <div class="card border-secondary mb-3">
+                <div class="card-header"><i class="bi bi-repeat me-2"></i>Retweeting</div>
+                <div class="card-body">
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" name="retweeting.enabled" id="rt-enabled"
+                               {% if not account or account.get('retweeting', {}).get('enabled', True) %}checked{% endif %}>
+                        <label class="form-check-label" for="rt-enabled">Enable Retweeting</label>
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Daily Limit</label>
+                            <input type="number" class="form-control" name="retweeting.daily_limit"
+                                   value="{{ account.retweeting.daily_limit if account and account.retweeting else 3 }}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Strategy</label>
+                            <select class="form-select" name="retweeting.strategy">
+                                <option value="latest" {% if not account or account.get('retweeting', {}).get('strategy', 'latest') == 'latest' %}selected{% endif %}>Latest</option>
+                                <option value="random" {% if account and account.get('retweeting', {}).get('strategy') == 'random' %}selected{% endif %}>Random</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Target Profiles -->
+                    <label class="form-label">Target Profiles</label>
+                    <div id="targets-container">
+                        {% if account and account.get('retweeting', {}).get('target_profiles') %}
+                            {% for t in account.retweeting.target_profiles %}
+                            <div class="row g-2 mb-2 target-row">
+                                <div class="col-6">
+                                    <input type="text" class="form-control form-control-sm" name="target_{{ loop.index0 }}_username"
+                                           value="{{ t.username }}" placeholder="@username">
+                                </div>
+                                <div class="col-3">
+                                    <input type="number" class="form-control form-control-sm" name="target_{{ loop.index0 }}_priority"
+                                           value="{{ t.priority }}" placeholder="Priority">
+                                </div>
+                                <div class="col-3">
+                                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRow(this)">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                            <div class="row g-2 mb-2 target-row">
+                                <div class="col-6">
+                                    <input type="text" class="form-control form-control-sm" name="target_0_username" placeholder="@username">
+                                </div>
+                                <div class="col-3">
+                                    <input type="number" class="form-control form-control-sm" name="target_0_priority" value="1" placeholder="Priority">
+                                </div>
+                                <div class="col-3">
+                                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRow(this)">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        {% endif %}
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-secondary mb-3" onclick="addTarget()">
+                        <i class="bi bi-plus me-1"></i>Add Target
+                    </button>
+
+                    <!-- Time Windows -->
+                    <label class="form-label">Time Windows</label>
+                    <div id="windows-container">
+                        {% set windows = account.retweeting.time_windows if account and account.get('retweeting', {}).get('time_windows') else [{'start': '09:00', 'end': '12:00'}, {'start': '14:00', 'end': '17:00'}, {'start': '19:00', 'end': '22:00'}] %}
+                        {% for w in windows %}
+                        <div class="row g-2 mb-2 window-row">
+                            <div class="col-4">
+                                <input type="text" class="form-control form-control-sm" name="window_{{ loop.index0 }}_start"
+                                       value="{{ w.start }}" placeholder="HH:MM">
+                            </div>
+                            <div class="col-1 text-center pt-1">to</div>
+                            <div class="col-4">
+                                <input type="text" class="form-control form-control-sm" name="window_{{ loop.index0 }}_end"
+                                       value="{{ w.end }}" placeholder="HH:MM">
+                            </div>
+                            <div class="col-3">
+                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRow(this)">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addWindow()">
+                        <i class="bi bi-plus me-1"></i>Add Time Window
+                    </button>
+                </div>
+            </div>
+
+            <div class="d-flex justify-content-between mb-4">
+                <a href="/accounts" class="btn btn-secondary">
+                    <i class="bi bi-arrow-left me-1"></i>Back
+                </a>
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-check-lg me-1"></i>{{ 'Save Changes' if edit else 'Add Account' }}
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/accounts.js') }}"></script>
+{% endblock %}

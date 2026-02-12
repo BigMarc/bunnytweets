@@ -128,18 +128,16 @@ class GoLoginClient:
     # ------------------------------------------------------------------
     # Remote API – profile listing
     # ------------------------------------------------------------------
-    def list_profiles(self, page: int = 1, limit: int = 50) -> dict:
+    def list_profiles(self) -> dict:
         """List browser profiles via the GoLogin remote API.
 
         Endpoint: GET https://api.gologin.com/browser/v2
-        Paginated (30 profiles per page).
         """
         url = f"{self.REMOTE_API_BASE}/browser/v2"
-        logger.debug(f"GET {url} page={page}")
+        logger.debug(f"GET {url}")
         resp = requests.get(
             url,
             headers=self.headers,
-            params={"page": page},
             timeout=30,
         )
         if not resp.ok:
