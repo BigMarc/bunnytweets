@@ -85,13 +85,18 @@ class Application:
 
         # Scheduler & Queue
         self.job_manager = JobManager(timezone=self.config.timezone)
-        self.queue = QueueHandler()
+        self.queue = QueueHandler(
+            error_handling=self.config.error_handling,
+            db=self.db,
+            notifier=self.notifier,
+        )
 
         # Per-account components (populated during setup)
         self._automations: dict = {}
         self._posters: dict = {}
         self._retweeters: dict = {}
         self._simulators: dict = {}
+        self._repliers: dict = {}
 
         self._shutdown = False
         self._ready = threading.Event()
@@ -135,6 +140,7 @@ class Application:
         from src.twitter.poster import TwitterPoster
         from src.twitter.retweeter import TwitterRetweeter
         from src.twitter.human_simulator import HumanSimulator
+        from src.twitter.replier import TwitterReplier
 
         name = acct["name"]
         twitter_cfg = acct["twitter"]
@@ -181,6 +187,12 @@ class Application:
         # Human simulator
         simulator = HumanSimulator(automation, self.db, name, acct)
         self._simulators[name] = simulator
+
+        # Replier
+        replier = TwitterReplier(
+            automation, self.db, name, acct, notifier=self.notifier
+        )
+        self._repliers[name] = replier
 
         self.db.update_account_status(name, status="idle", error_message=None)
         logger.info(f"[{name}] Account set up successfully")
@@ -233,9 +245,21 @@ class Application:
                 callback=partial(self._enqueue_task, name, "simulation", self._simulators[name].run_session),
             )
 
+        # Reply schedule
+        reply_cfg = acct.get("reply_to_replies", {})
+        if reply_cfg.get("enabled") and name in self._repliers:
+            self.job_manager.add_reply_jobs(
+                name,
+                daily_limit=reply_cfg.get("daily_limit", 10),
+                time_windows=reply_cfg.get("time_windows", []),
+                callback=partial(self._enqueue_task, name, "reply", self._repliers[name].run_reply_cycle),
+            )
+
     def _enqueue_task(self, account_name: str, task_type: str, callback) -> None:
         from src.scheduler.queue_handler import Task
-        task = Task(account_name=account_name, task_type=task_type, callback=callback)
+        max_retries = self.config.error_handling.get("max_retries", 3)
+        task = Task(account_name=account_name, task_type=task_type,
+                    callback=callback, max_retries=max_retries)
         self.queue.submit(task)
 
     def _check_cta_pending(self) -> None:
@@ -352,6 +376,7 @@ class Application:
         from src.twitter.poster import TwitterPoster
         from src.twitter.retweeter import TwitterRetweeter
         from src.twitter.human_simulator import HumanSimulator
+        from src.twitter.replier import TwitterReplier
 
         acct = None
         for a in self.config.enabled_accounts:
@@ -388,7 +413,7 @@ class Application:
             self.notifier.alert_not_logged_in(name)
             return
 
-        # Re-wire poster, retweeter, simulator with the new automation instance
+        # Re-wire poster, retweeter, simulator, replier with the new automation instance
         if self.file_monitor:
             poster = TwitterPoster(
                 automation, self.file_monitor, self.db, name, acct,
@@ -403,6 +428,11 @@ class Application:
 
         simulator = HumanSimulator(automation, self.db, name, acct)
         self._simulators[name] = simulator
+
+        replier = TwitterReplier(
+            automation, self.db, name, acct, notifier=self.notifier
+        )
+        self._repliers[name] = replier
 
         self.db.update_account_status(name, status="idle", error_message=None)
         logger.info(f"[{name}] Auto-recovery successful — browser restarted")
@@ -516,6 +546,7 @@ class Application:
 def main():
     parser = argparse.ArgumentParser(description="BunnyTweets – Twitter Automation")
     parser.add_argument("--web", action="store_true", help="Launch the web dashboard")
+    parser.add_argument("--desktop", action="store_true", help="Launch desktop app (dashboard + system tray)")
     parser.add_argument("--port", type=int, default=8080, help="Web dashboard port (default: 8080)")
     parser.add_argument("--setup", action="store_true", help="Interactive first-time setup wizard")
     parser.add_argument("--add-account", action="store_true", help="Add a new Twitter account interactively")
@@ -532,6 +563,14 @@ def main():
     if args.add_account:
         from src.core.setup_wizard import run_add_account
         run_add_account()
+        return
+
+    # Desktop mode — dashboard + system tray
+    if args.desktop:
+        from desktop import main as desktop_main
+        import sys
+        sys.argv = ["desktop.py", f"--port={args.port}"]
+        desktop_main()
         return
 
     # Web dashboard — lightweight, no Selenium required

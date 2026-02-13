@@ -23,10 +23,16 @@ def _get_form_context(state, acct=None):
         ctas = state.db.get_cta_texts(acct["name"])
         cta_texts = [{"id": c.id, "text": c.text} for c in ctas]
 
+    reply_templates = []
+    if acct and acct.get("name"):
+        tpls = state.db.get_reply_templates(acct["name"])
+        reply_templates = [{"id": t.id, "text": t.text} for t in tpls]
+
     return {
         "all_categories": all_cats,
         "selected_categories": selected,
         "cta_texts": cta_texts,
+        "reply_templates": reply_templates,
     }
 
 
@@ -71,6 +77,11 @@ def add_save():
     data["accounts"].append(acct)
     state.save_accounts(data)
 
+    # Auto-add new account's twitter username to global retweet pool
+    username = acct.get("twitter", {}).get("username", "")
+    if username:
+        state.db.add_global_target(username)
+
     flash(f"Account '{acct['name']}' added!", "success")
     return redirect(url_for("accounts.index"))
 
@@ -97,9 +108,19 @@ def edit_save(name):
         flash(f"Account '{name}' not found.", "danger")
         return redirect(url_for("accounts.index"))
 
+    # Track old username so we can update the global target pool
+    old_username = data["accounts"][idx].get("twitter", {}).get("username", "")
+
     acct = _parse_account_form(request.form)
     data["accounts"][idx] = acct
     state.save_accounts(data)
+
+    # Update global target pool if username changed
+    new_username = acct.get("twitter", {}).get("username", "")
+    if old_username and new_username and old_username != new_username:
+        state.db.update_global_target(old_username, new_username)
+    elif new_username and not old_username:
+        state.db.add_global_target(new_username)
 
     flash(f"Account '{name}' updated!", "success")
     return redirect(url_for("accounts.index"))
@@ -158,6 +179,27 @@ def delete_cta(name, cta_id):
     if ok:
         return jsonify({"success": True, "message": "CTA text deleted"})
     return jsonify({"success": False, "message": "CTA text not found"})
+
+
+@bp.route("/<name>/reply-template/add", methods=["POST"])
+def add_reply_template(name):
+    state = current_app.config["APP_STATE"]
+    data = request.get_json(silent=True) or {}
+    text = data.get("text", "").strip()
+    if not text:
+        return jsonify({"success": False, "message": "Template text is required"})
+
+    tpl = state.db.add_reply_template(name, text)
+    return jsonify({"success": True, "id": tpl.id, "message": "Reply template added"})
+
+
+@bp.route("/<name>/reply-template/<int:tpl_id>/delete", methods=["POST"])
+def delete_reply_template(name, tpl_id):
+    state = current_app.config["APP_STATE"]
+    ok = state.db.delete_reply_template(tpl_id)
+    if ok:
+        return jsonify({"success": True, "message": "Reply template deleted"})
+    return jsonify({"success": False, "message": "Reply template not found"})
 
 
 def _find_account(state, name):
@@ -285,6 +327,28 @@ def _parse_account_form(form):
         acct["human_simulation"]["time_windows"] = sim_windows or [
             {"start": "08:00", "end": "12:00"},
             {"start": "18:00", "end": "23:00"},
+        ]
+
+    # Reply to replies
+    reply_enabled = "reply_to_replies.enabled" in form
+    acct["reply_to_replies"] = {"enabled": reply_enabled}
+    if reply_enabled:
+        acct["reply_to_replies"]["daily_limit"] = _to_int(
+            form.get("reply_to_replies.daily_limit", "10"), 10
+        )
+
+        # Reply time windows
+        reply_windows = []
+        i = 0
+        while True:
+            start = form.get(f"reply_window_{i}_start", "").strip()
+            end = form.get(f"reply_window_{i}_end", "").strip()
+            if not start or not end:
+                break
+            reply_windows.append({"start": start, "end": end})
+            i += 1
+        acct["reply_to_replies"]["time_windows"] = reply_windows or [
+            {"start": "09:00", "end": "22:00"},
         ]
 
     return acct

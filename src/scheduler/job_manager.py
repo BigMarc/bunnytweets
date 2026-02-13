@@ -18,6 +18,7 @@ class JobType(Enum):
     HEALTH_CHECK = "health_check"
     HUMAN_SIMULATION = "human_simulation"
     CTA_COMMENT = "cta_comment"
+    REPLY = "reply"
 
 
 class JobManager:
@@ -172,6 +173,50 @@ class JobManager:
                     name=f"Human sim for {account_name} at {h:02d}:{m:02d}",
                 )
                 logger.info(f"Scheduled simulation job: {job_id} at {h:02d}:{m:02d}")
+                remaining -= 1
+
+    # ------------------------------------------------------------------
+    # Reply schedules
+    # ------------------------------------------------------------------
+    def add_reply_jobs(
+        self,
+        account_name: str,
+        daily_limit: int,
+        time_windows: list[dict],
+        callback,
+    ) -> None:
+        """Schedule reply-to-mentions jobs spread across time windows."""
+        if not time_windows or daily_limit <= 0:
+            return
+
+        replies_per_window = max(1, daily_limit // len(time_windows))
+        remaining = daily_limit
+
+        for wi, window in enumerate(time_windows):
+            if remaining <= 0:
+                break
+            count = min(replies_per_window, remaining)
+            start_h, start_m = map(int, window["start"].split(":"))
+            end_h, end_m = map(int, window["end"].split(":"))
+
+            for ri in range(count):
+                total_start = start_h * 60 + start_m
+                total_end = end_h * 60 + end_m
+                random_minute = random.randint(total_start, max(total_start, total_end - 1))
+                h = random_minute // 60
+                m = random_minute % 60
+
+                job_id = f"reply_{account_name}_w{wi}_r{ri}"
+                self.scheduler.add_job(
+                    callback,
+                    trigger="cron",
+                    hour=h,
+                    minute=m,
+                    id=job_id,
+                    replace_existing=True,
+                    name=f"Reply for {account_name} at {h:02d}:{m:02d}",
+                )
+                logger.info(f"Scheduled reply job: {job_id} at {h:02d}:{m:02d}")
                 remaining -= 1
 
     # ------------------------------------------------------------------

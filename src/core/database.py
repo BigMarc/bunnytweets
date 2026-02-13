@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import random
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from pathlib import Path
 
 from sqlalchemy import (
@@ -92,6 +92,49 @@ class AccountStatus(Base):
     # CTA self-comment tracking
     cta_pending = Column(Integer, default=0)  # 1 = needs CTA comment
     last_cta = Column(DateTime)
+
+
+class TaskLog(Base):
+    """Log of every task execution for analytics."""
+    __tablename__ = "task_logs"
+
+    id = Column(Integer, primary_key=True)
+    account_name = Column(String, index=True, nullable=False)
+    task_type = Column(String, nullable=False)
+    executed_at = Column(DateTime, default=datetime.utcnow, index=True)
+    status = Column(String, nullable=False)  # success | failed
+    error_message = Column(Text)
+    duration_seconds = Column(Integer, default=0)
+
+
+class ReplyTracker(Base):
+    """Tracks which tweet replies have already been answered."""
+    __tablename__ = "reply_tracker"
+
+    id = Column(Integer, primary_key=True)
+    account_name = Column(String, index=True, nullable=False)
+    original_tweet_id = Column(String, nullable=False)
+    reply_tweet_id = Column(String, index=True, nullable=False)
+    replied_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ReplyTemplate(Base):
+    """Per-account reply templates for auto-replies."""
+    __tablename__ = "reply_templates"
+
+    id = Column(Integer, primary_key=True)
+    account_name = Column(String, index=True, nullable=False)
+    text = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class GlobalTarget(Base):
+    """Global retweet pool — every account retweets posts from these usernames."""
+    __tablename__ = "global_targets"
+
+    id = Column(Integer, primary_key=True)
+    username = Column(String, unique=True, nullable=False)
+    added_at = Column(DateTime, default=datetime.utcnow)
 
 
 class Database:
@@ -440,3 +483,210 @@ class Database:
                 .filter_by(account_name=account_name, status="pending")
                 .all()
             )
+
+    # ----- Task logging (analytics) -----
+    def log_task(
+        self,
+        account_name: str,
+        task_type: str,
+        status: str,
+        error_message: str | None = None,
+        duration_seconds: int = 0,
+    ) -> None:
+        with self.session() as s:
+            s.add(TaskLog(
+                account_name=account_name,
+                task_type=task_type,
+                status=status,
+                error_message=error_message,
+                duration_seconds=duration_seconds,
+            ))
+            s.commit()
+
+    def get_daily_activity(self, days: int = 30) -> list[dict]:
+        """Return daily task counts for the last N days."""
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        with self.session() as s:
+            rows = (
+                s.query(
+                    func.date(TaskLog.executed_at).label("day"),
+                    TaskLog.status,
+                    func.count().label("cnt"),
+                )
+                .filter(TaskLog.executed_at >= cutoff)
+                .group_by("day", TaskLog.status)
+                .order_by("day")
+                .all()
+            )
+            return [{"day": str(r.day), "status": r.status, "count": r.cnt} for r in rows]
+
+    def get_success_failure_counts(self, days: int = 30) -> dict:
+        """Return total success vs failure counts."""
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        with self.session() as s:
+            rows = (
+                s.query(TaskLog.status, func.count().label("cnt"))
+                .filter(TaskLog.executed_at >= cutoff)
+                .group_by(TaskLog.status)
+                .all()
+            )
+            return {r.status: r.cnt for r in rows}
+
+    def get_per_account_stats(self, days: int = 30) -> list[dict]:
+        """Return per-account task statistics."""
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        with self.session() as s:
+            rows = (
+                s.query(
+                    TaskLog.account_name,
+                    TaskLog.task_type,
+                    TaskLog.status,
+                    func.count().label("cnt"),
+                )
+                .filter(TaskLog.executed_at >= cutoff)
+                .group_by(TaskLog.account_name, TaskLog.task_type, TaskLog.status)
+                .all()
+            )
+            return [
+                {"account": r.account_name, "task_type": r.task_type,
+                 "status": r.status, "count": r.cnt}
+                for r in rows
+            ]
+
+    def get_file_use_distribution(self) -> list[dict]:
+        """Return content rotation stats: use_count distribution per account."""
+        with self.session() as s:
+            rows = (
+                s.query(
+                    ProcessedFile.account_name,
+                    ProcessedFile.use_count,
+                    func.count().label("cnt"),
+                )
+                .group_by(ProcessedFile.account_name, ProcessedFile.use_count)
+                .order_by(ProcessedFile.account_name, ProcessedFile.use_count)
+                .all()
+            )
+            return [
+                {"account": r.account_name, "use_count": r.use_count or 0, "files": r.cnt}
+                for r in rows
+            ]
+
+    # ----- Reply tracking -----
+    def is_reply_tracked(self, account_name: str, reply_tweet_id: str) -> bool:
+        """Check if we've already replied to this tweet."""
+        with self.session() as s:
+            return (
+                s.query(ReplyTracker)
+                .filter_by(account_name=account_name, reply_tweet_id=reply_tweet_id)
+                .first()
+                is not None
+            )
+
+    def record_reply(
+        self, account_name: str, original_tweet_id: str, reply_tweet_id: str,
+    ) -> None:
+        with self.session() as s:
+            s.add(ReplyTracker(
+                account_name=account_name,
+                original_tweet_id=original_tweet_id,
+                reply_tweet_id=reply_tweet_id,
+            ))
+            s.commit()
+
+    def get_replies_today(self, account_name: str) -> int:
+        """Count replies made today."""
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        with self.session() as s:
+            return (
+                s.query(ReplyTracker)
+                .filter(
+                    ReplyTracker.account_name == account_name,
+                    ReplyTracker.replied_at >= today_start,
+                )
+                .count()
+            )
+
+    # ----- Reply templates -----
+    def get_reply_templates(self, account_name: str) -> list[ReplyTemplate]:
+        with self.session() as s:
+            return (
+                s.query(ReplyTemplate)
+                .filter_by(account_name=account_name)
+                .order_by(ReplyTemplate.created_at.desc())
+                .all()
+            )
+
+    def get_random_reply_template(self, account_name: str) -> str | None:
+        templates = self.get_reply_templates(account_name)
+        if not templates:
+            return None
+        return random.choice(templates).text
+
+    def add_reply_template(self, account_name: str, text: str) -> ReplyTemplate:
+        with self.session() as s:
+            tpl = ReplyTemplate(account_name=account_name, text=text)
+            s.add(tpl)
+            s.commit()
+            s.refresh(tpl)
+            return tpl
+
+    def delete_reply_template(self, template_id: int) -> bool:
+        with self.session() as s:
+            tpl = s.query(ReplyTemplate).get(template_id)
+            if not tpl:
+                return False
+            s.delete(tpl)
+            s.commit()
+            return True
+
+    # ----- Global targets (shared retweet pool) -----
+    def get_global_targets(self) -> list[GlobalTarget]:
+        with self.session() as s:
+            return s.query(GlobalTarget).order_by(GlobalTarget.added_at.desc()).all()
+
+    def get_global_target_usernames(self) -> list[str]:
+        """Return just the username strings."""
+        return [t.username for t in self.get_global_targets()]
+
+    def add_global_target(self, username: str) -> GlobalTarget | None:
+        """Add a username to the global pool. Returns None if it already exists."""
+        clean = username.strip().lstrip("@")
+        if not clean:
+            return None
+        handle = f"@{clean}"
+        with self.session() as s:
+            existing = s.query(GlobalTarget).filter_by(username=handle).first()
+            if existing:
+                return existing
+            target = GlobalTarget(username=handle)
+            s.add(target)
+            s.commit()
+            s.refresh(target)
+            return target
+
+    def update_global_target(self, old_username: str, new_username: str) -> None:
+        """Rename a global target (e.g. when an account's twitter handle changes)."""
+        old_handle = f"@{old_username.strip().lstrip('@')}"
+        new_handle = f"@{new_username.strip().lstrip('@')}"
+        if old_handle == new_handle:
+            return
+        with self.session() as s:
+            target = s.query(GlobalTarget).filter_by(username=old_handle).first()
+            if target:
+                # Check if new handle already exists
+                dup = s.query(GlobalTarget).filter_by(username=new_handle).first()
+                if dup:
+                    # New handle already in pool — just remove the old one
+                    s.delete(target)
+                else:
+                    target.username = new_handle
+                s.commit()
+
+    def delete_global_target(self, target_id: int) -> bool:
+        with self.session() as s:
+            target = s.query(GlobalTarget).get(target_id)
+            if not target:
+                return False
+            s.delete(target)
+            s.commit()
+            return True

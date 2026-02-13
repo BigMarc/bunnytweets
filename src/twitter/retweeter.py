@@ -42,8 +42,37 @@ class TwitterRetweeter:
             )
             return False
 
-        targets = rt_cfg.get("target_profiles", [])
+        try:
+            return self._do_retweet(daily_limit, current_count)
+        except Exception as exc:
+            logger.error(
+                f"[{self.account_name}] Retweet cycle failed: {exc}"
+            )
+            if self.notifier:
+                self.notifier.alert_retweet_failed(
+                    self.account_name, f"Unexpected error: {str(exc)[:200]}"
+                )
+            raise  # Let QueueHandler retry logic handle it
+
+    def _do_retweet(self, daily_limit: int, current_count: int) -> bool:
+        rt_cfg = self.config.get("retweeting", {})
+        targets = list(rt_cfg.get("target_profiles", []))
         strategy = rt_cfg.get("strategy", "latest")
+
+        # Merge global targets (shared retweet pool) with per-account targets.
+        # Global targets get a default priority of 50 so per-account targets
+        # (usually priority 1-10) are checked first.
+        own_username = self.config.get("twitter", {}).get("username", "")
+        own_handle = f"@{own_username.lstrip('@')}" if own_username else ""
+        existing_usernames = {t.get("username", "").lower() for t in targets}
+
+        global_usernames = self.db.get_global_target_usernames()
+        for g_user in global_usernames:
+            # Don't retweet yourself
+            if own_handle and g_user.lower() == own_handle.lower():
+                continue
+            if g_user.lower() not in existing_usernames:
+                targets.append({"username": g_user, "priority": 50})
 
         # Sort by priority
         targets = sorted(targets, key=lambda t: t.get("priority", 99))

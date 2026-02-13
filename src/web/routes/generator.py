@@ -24,7 +24,11 @@ def index():
             "count": len(titles),
         })
 
-    return render_template("generator.html", categories=cat_data)
+    # Global target accounts (shared retweet pool)
+    global_targets = state.db.get_global_targets()
+    gt_data = [{"id": t.id, "username": t.username} for t in global_targets]
+
+    return render_template("generator.html", categories=cat_data, global_targets=gt_data)
 
 
 @bp.route("/category/add", methods=["POST"])
@@ -99,3 +103,29 @@ def api_titles():
             "titles": [{"id": t.id, "text": t.text} for t in titles],
         })
     return jsonify(result)
+
+
+# ------------------------------------------------------------------
+# Global Target Accounts (shared retweet pool)
+# ------------------------------------------------------------------
+@bp.route("/global-target/add", methods=["POST"])
+def add_global_target():
+    state = current_app.config["APP_STATE"]
+    data = request.get_json(silent=True) or {}
+    username = data.get("username", "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Username is required"})
+
+    target = state.db.add_global_target(username)
+    if target:
+        return jsonify({"success": True, "id": target.id, "username": target.username})
+    return jsonify({"success": False, "message": "Failed to add target"})
+
+
+@bp.route("/global-target/<int:target_id>/delete", methods=["POST"])
+def delete_global_target(target_id):
+    state = current_app.config["APP_STATE"]
+    ok = state.db.delete_global_target(target_id)
+    if ok:
+        return jsonify({"success": True, "message": "Target removed"})
+    return jsonify({"success": False, "message": "Target not found"})

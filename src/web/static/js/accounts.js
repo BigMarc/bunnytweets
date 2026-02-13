@@ -117,8 +117,37 @@ function addSimWindow() {
     reindexRows('sim-windows-container', 'sim-window-row', 'sim_window_');
 }
 
+// Dynamic form rows for reply time windows
+let replyWindowCount = document.querySelectorAll('.reply-window-row').length;
+
+function addReplyWindow() {
+    const container = document.getElementById('reply-windows-container');
+    if (!container) return;
+
+    const idx = replyWindowCount++;
+    const html = `
+        <div class="row g-2 mb-2 reply-window-row">
+            <div class="col-4">
+                <input type="text" class="form-control form-control-sm"
+                       name="reply_window_${idx}_start" placeholder="HH:MM">
+            </div>
+            <div class="col-1 text-center pt-1">to</div>
+            <div class="col-4">
+                <input type="text" class="form-control form-control-sm"
+                       name="reply_window_${idx}_end" placeholder="HH:MM">
+            </div>
+            <div class="col-3">
+                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRow(this)">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </div>
+        </div>`;
+    container.insertAdjacentHTML('beforeend', html);
+    reindexRows('reply-windows-container', 'reply-window-row', 'reply_window_');
+}
+
 function removeRow(btn) {
-    const row = btn.closest('.target-row, .window-row, .sim-window-row');
+    const row = btn.closest('.target-row, .window-row, .sim-window-row, .reply-window-row');
     if (row) {
         const container = row.parentElement;
         row.remove();
@@ -127,6 +156,8 @@ function removeRow(btn) {
             reindexRows('targets-container', 'target-row', 'target_');
         } else if (container.id === 'sim-windows-container') {
             reindexRows('sim-windows-container', 'sim-window-row', 'sim_window_');
+        } else if (container.id === 'reply-windows-container') {
+            reindexRows('reply-windows-container', 'reply-window-row', 'reply_window_');
         } else {
             reindexRows('windows-container', 'window-row', 'window_');
         }
@@ -154,4 +185,5 @@ function reindexRows(containerId, rowClass, prefix) {
     if (prefix === 'target_') targetCount = rows.length;
     if (prefix === 'window_') windowCount = rows.length;
     if (prefix === 'sim_window_') simWindowCount = rows.length;
+    if (prefix === 'reply_window_') replyWindowCount = rows.length;
 }
