@@ -1,9 +1,11 @@
-# Twitter Multi-Account Automation - Account Configuration
+# BunnyTweets - Multi-Platform Account Configuration
 # Copy this file to accounts.yaml and fill in your details.
+# Supported platforms: "twitter" (default) and "threads"
 
 accounts:
-  # --- Account 1 ---
+  # --- Twitter Account ---
   - name: "MyMainAccount"
+    platform: "twitter"      # "twitter" or "threads"
     enabled: true
 
     twitter:
@@ -95,8 +97,9 @@ accounts:
           end: "17:00"
       # Reply templates are managed via the web dashboard (Account > Edit)
 
-  # --- Account 2 ---
+  # --- Second Twitter Account ---
   - name: "SecondAccount"
+    platform: "twitter"
     enabled: true
 
     twitter:
@@ -149,3 +152,70 @@ accounts:
           end: "13:00"
         - start: "16:00"
           end: "19:00"
+
+  # --- Threads.net Account ---
+  - name: "MyThreadsAccount"
+    platform: "threads"
+    enabled: true
+
+    # Threads uses Instagram login credentials.
+    # The browser profile should already be logged in to threads.net.
+    threads:
+      username: "my_threads_handle"    # Threads/Instagram username (without @)
+      profile_id: "gologin_or_dolphin_profile_id"
+
+    google_drive:
+      folder_id: "1ABCdefGHIjklMNOpqrSTUvwx"
+      check_interval_minutes: 15
+      file_types: ["jpg", "png", "gif", "webp", "mp4", "mov", "txt"]
+
+    posting:
+      enabled: true
+      schedule:
+        - time: "11:00"
+        - time: "17:00"
+        - time: "21:00"
+      default_text: ""
+      title_categories: ["Global"]
+
+    # Threads uses "reposting" instead of "retweeting"
+    reposting:
+      enabled: true
+      # Maximum reposts per day
+      max_per_day: 5
+      # Target accounts to repost from (list of @usernames)
+      targets:
+        - "@target_account_1"
+        - "@target_account_2"
+      # Time windows during which reposts are allowed
+      time_windows:
+        - start: "10:00"
+          end: "13:00"
+        - start: "16:00"
+          end: "20:00"
+
+    human_simulation:
+      enabled: true
+      session_duration_min: 20
+      session_duration_max: 45
+      daily_sessions_limit: 2
+      daily_likes_limit: 20
+      time_windows:
+        - start: "09:00"
+          end: "14:00"
+        - start: "19:00"
+          end: "23:00"
+      # Threads-specific action weights
+      # action_weights:
+      #   scroll: 30
+      #   read_tweet: 25
+      #   like: 15
+      #   view_profile: 15
+      #   explore: 15
+
+    reply_to_replies:
+      enabled: false
+      daily_limit: 5
+      time_windows:
+        - start: "10:00"
+          end: "20:00"

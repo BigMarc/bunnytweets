@@ -17,11 +17,18 @@ def index():
 
     for acct in accounts:
         name = acct.get("name", "unknown")
-        twitter = acct.get("twitter", {})
+        platform = acct.get("platform", "twitter")
+        platform_cfg = acct.get(platform, acct.get("twitter", {}))
         status_obj = state.db.get_account_status(name)
         rt_today = state.db.get_retweets_today(name)
-        rt_limit = acct.get("retweeting", {}).get("daily_limit", 3)
         sim_cfg = acct.get("human_simulation", {})
+
+        if platform == "threads":
+            rt_limit = acct.get("reposting", {}).get("max_per_day", 5)
+            rt_enabled = acct.get("reposting", {}).get("enabled", False)
+        else:
+            rt_limit = acct.get("retweeting", {}).get("daily_limit", 3)
+            rt_enabled = acct.get("retweeting", {}).get("enabled", False)
 
         # Simulation stats
         sim_sessions_today = 0
@@ -32,7 +39,8 @@ def index():
 
         account_data.append({
             "name": name,
-            "username": twitter.get("username", ""),
+            "platform": platform,
+            "username": platform_cfg.get("username", ""),
             "enabled": acct.get("enabled", False),
             "status": status_obj.status if status_obj else "idle",
             "last_post": status_obj.last_post if status_obj else None,
@@ -41,7 +49,7 @@ def index():
             "retweet_limit": rt_limit,
             "error_message": status_obj.error_message if status_obj else None,
             "posting_enabled": acct.get("posting", {}).get("enabled", False),
-            "retweeting_enabled": acct.get("retweeting", {}).get("enabled", False),
+            "retweeting_enabled": rt_enabled,
             "sim_enabled": sim_cfg.get("enabled", False),
             "sim_sessions_today": sim_sessions_today,
             "sim_sessions_limit": sim_cfg.get("daily_sessions_limit", 2),

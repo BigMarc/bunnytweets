@@ -16,6 +16,7 @@
             <thead>
                 <tr>
                     <th>Name</th>
+                    <th>Platform</th>
                     <th>Username</th>
                     <th>Profile ID</th>
                     <th>Status</th>
@@ -27,10 +28,19 @@
             </thead>
             <tbody>
                 {% for acct in accounts %}
+                {% set platform = acct.get('platform', 'twitter') %}
+                {% set pcfg = acct.get(platform, acct.get('twitter', {})) %}
                 <tr id="row-{{ acct.name }}">
                     <td><strong>{{ acct.name }}</strong></td>
-                    <td>{{ acct.get('twitter', {}).get('username', '') }}</td>
-                    <td><code>{{ acct.get('twitter', {}).get('profile_id', '') [:12] }}...</code></td>
+                    <td>
+                        {% if platform == 'threads' %}
+                            <span class="badge bg-dark">Threads</span>
+                        {% else %}
+                            <span class="badge bg-primary">Twitter</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ pcfg.get('username', '') }}</td>
+                    <td><code>{{ pcfg.get('profile_id', '')[:12] }}...</code></td>
                     <td>
                         {% if acct.status == 'running' %}
                             <span class="badge bg-primary">Running</span>
