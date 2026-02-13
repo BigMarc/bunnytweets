@@ -49,6 +49,7 @@ class Application:
         setup_logging(
             level=log_cfg.get("level", "INFO"),
             retention_days=log_cfg.get("retention_days", 30),
+            per_account_logs=log_cfg.get("per_account_logs", True),
             log_dir=str(self.config.resolve_path("data/logs")),
         )
 
