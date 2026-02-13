@@ -46,13 +46,12 @@ class DriveClient:
         self,
         folder_id: str,
         file_types: list[str] | None = None,
-        order_by: str = "createdTime desc",
         page_size: int = 100,
     ) -> list[dict[str, Any]]:
         """List files in a Google Drive folder, optionally filtered by extension.
 
         Supports both personal Drive and Shared Drives via
-        ``supportsAllDrives`` / ``includeItemsFromAllDrives``.
+        ``corpora="allDrives"`` + ``supportsAllDrives`` / ``includeItemsFromAllDrives``.
         Paginates automatically so folders with >100 files are fully returned.
         """
         query = f"'{folder_id}' in parents and trashed = false"
@@ -64,8 +63,8 @@ class DriveClient:
             request_kwargs: dict[str, Any] = dict(
                 q=query,
                 pageSize=page_size,
-                orderBy=order_by,
                 fields="nextPageToken, files(id, name, mimeType, createdTime, modifiedTime, size)",
+                corpora="allDrives",
                 supportsAllDrives=True,
                 includeItemsFromAllDrives=True,
             )
