@@ -5,7 +5,6 @@ from __future__ import annotations
 import random
 import time
 from pathlib import Path
-from typing import Sequence
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By

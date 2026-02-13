@@ -309,10 +309,22 @@ class ThreadsAutomation(PlatformAutomation):
 
             self._action_delay()
 
-            # Click Post
-            post_btn = _find_with_fallback(
-                self.driver, "post_button", timeout=10, clickable=True
+            # Click Post — use a longer timeout for video uploads since the
+            # Post button stays disabled until the upload finishes processing.
+            has_video = media_files and any(
+                mf.suffix.lower() in _VIDEO_EXTENSIONS for mf in media_files
             )
+            post_btn_timeout = _UPLOAD_TIMEOUT_VIDEO if has_video else 10
+            try:
+                post_btn = _find_with_fallback(
+                    self.driver, "post_button", timeout=post_btn_timeout, clickable=True
+                )
+            except NoSuchElementException:
+                logger.error(
+                    f"Post button not clickable after {post_btn_timeout}s "
+                    "— media upload may have failed"
+                )
+                return False
             self._move_and_click(post_btn)
             logger.info("Threads post published successfully")
             self._page_delay()
