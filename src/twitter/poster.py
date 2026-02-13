@@ -54,12 +54,14 @@ class TwitterPoster:
 
         Returns True if a tweet was posted.
         """
+        logger.info(f"[{self.account_name}] Starting posting cycle")
+
         drive_cfg = self.config.get("google_drive", {})
         folder_id = drive_cfg.get("folder_id")
         file_types = drive_cfg.get("file_types", [])
 
         if not folder_id:
-            logger.warning(f"[{self.account_name}] No Google Drive folder_id configured")
+            logger.warning(f"[{self.account_name}] No Google Drive folder_id configured — skipping post")
             return False
 
         # List ALL files in the folder (not just new ones)
@@ -77,7 +79,7 @@ class TwitterPoster:
             return False
 
         if not all_files:
-            logger.debug(f"[{self.account_name}] No files in Drive folder")
+            logger.info(f"[{self.account_name}] No files found in Drive folder — nothing to post")
             return False
 
         # Separate media files from text files
@@ -86,7 +88,10 @@ class TwitterPoster:
             if not f["name"].lower().endswith(".txt")
         ]
         if not media_files:
-            logger.debug(f"[{self.account_name}] No media files in Drive folder")
+            logger.info(
+                f"[{self.account_name}] Drive folder has {len(all_files)} file(s) but none "
+                "are media (only .txt found) — nothing to post"
+            )
             return False
 
         # Pick the least-used file for this account

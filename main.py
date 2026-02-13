@@ -346,7 +346,10 @@ class Application:
     # Shutdown
     # ------------------------------------------------------------------
     def shutdown(self) -> None:
+        if getattr(self, '_shutdown_complete', False):
+            return
         self._shutdown = True
+        self._shutdown_complete = True
         logger.info("Shutting down...")
         self.job_manager.shutdown()
         self.queue.stop()
