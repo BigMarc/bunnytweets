@@ -133,21 +133,90 @@ class Application:
             )
 
     # ------------------------------------------------------------------
+    # Platform factory helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _get_platform(acct: dict) -> str:
+        """Return the platform for an account config ('twitter' or 'threads')."""
+        return acct.get("platform", "twitter")
+
+    @staticmethod
+    def _get_platform_cfg(acct: dict) -> dict:
+        """Return the platform-specific credentials block (twitter or threads)."""
+        platform = acct.get("platform", "twitter")
+        return acct.get(platform, acct.get("twitter", {}))
+
+    def _create_platform_components(self, acct: dict, driver):
+        """Instantiate the correct Automation/Poster/Retweeter/Simulator/Replier
+        classes based on the account's ``platform`` field.
+
+        Returns (automation, poster_or_None, retweeter, simulator, replier).
+        """
+        platform = self._get_platform(acct)
+        name = acct["name"]
+
+        if platform == "threads":
+            from src.platforms.threads.automation import ThreadsAutomation
+            from src.platforms.threads.poster import ThreadsPoster
+            from src.platforms.threads.reposter import ThreadsReposter
+            from src.platforms.threads.replier import ThreadsReplier
+            from src.platforms.threads.human_simulator import ThreadsHumanSimulator
+
+            automation = ThreadsAutomation(driver, self.config.delays)
+            poster = (
+                ThreadsPoster(
+                    automation, self.file_monitor, self.db, name, acct,
+                    notifier=self.notifier,
+                )
+                if self.file_monitor
+                else None
+            )
+            retweeter = ThreadsReposter(
+                automation, self.db, name, acct, notifier=self.notifier
+            )
+            simulator = ThreadsHumanSimulator(automation, self.db, name, acct)
+            replier = ThreadsReplier(
+                automation, self.db, name, acct, notifier=self.notifier
+            )
+        else:
+            # Default: Twitter
+            from src.twitter.automation import TwitterAutomation
+            from src.twitter.poster import TwitterPoster
+            from src.twitter.retweeter import TwitterRetweeter
+            from src.twitter.human_simulator import HumanSimulator
+            from src.twitter.replier import TwitterReplier
+
+            automation = TwitterAutomation(driver, self.config.delays)
+            poster = (
+                TwitterPoster(
+                    automation, self.file_monitor, self.db, name, acct,
+                    notifier=self.notifier,
+                )
+                if self.file_monitor
+                else None
+            )
+            retweeter = TwitterRetweeter(
+                automation, self.db, name, acct, notifier=self.notifier
+            )
+            simulator = HumanSimulator(automation, self.db, name, acct)
+            replier = TwitterReplier(
+                automation, self.db, name, acct, notifier=self.notifier
+            )
+
+        return automation, poster, retweeter, simulator, replier
+
+    # ------------------------------------------------------------------
     # Setup
     # ------------------------------------------------------------------
     def setup_account(self, acct: dict) -> bool:
-        """Initialise browser, Selenium, and Twitter components for one account."""
+        """Initialise browser, Selenium, and platform components for one account."""
         from src.core.logger import get_account_logger
-        from src.twitter.automation import TwitterAutomation
-        from src.twitter.poster import TwitterPoster
-        from src.twitter.retweeter import TwitterRetweeter
-        from src.twitter.human_simulator import HumanSimulator
-        from src.twitter.replier import TwitterReplier
 
         name = acct["name"]
-        twitter_cfg = acct["twitter"]
-        profile_id = twitter_cfg.get("profile_id") or twitter_cfg.get("dolphin_profile_id")
-        acct_logger = get_account_logger(name, str(self.config.resolve_path("data/logs")))
+        platform = self._get_platform(acct)
+        platform_cfg = self._get_platform_cfg(acct)
+        profile_id = platform_cfg.get("profile_id") or platform_cfg.get("dolphin_profile_id")
+        get_account_logger(name, str(self.config.resolve_path("data/logs")))
 
         try:
             driver = self.profile_manager.start_browser(profile_id)
@@ -157,13 +226,16 @@ class Application:
             self.notifier.alert_browser_failed(name, str(exc))
             return False
 
-        automation = TwitterAutomation(driver, self.config.delays)
+        automation, poster, retweeter, simulator, replier = (
+            self._create_platform_components(acct, driver)
+        )
         self._automations[name] = automation
 
         # Check login state – profiles should already be logged in
+        platform_label = "Threads" if platform == "threads" else "Twitter"
         if not automation.is_logged_in():
             logger.warning(
-                f"[{name}] Browser is NOT logged in to Twitter. "
+                f"[{name}] Browser is NOT logged in to {platform_label}. "
                 f"Please log in manually via {self.provider_name} first."
             )
             self.db.update_account_status(
@@ -172,32 +244,14 @@ class Application:
             self.notifier.alert_not_logged_in(name)
             return False
 
-        # Poster
-        if self.file_monitor:
-            poster = TwitterPoster(
-                automation, self.file_monitor, self.db, name, acct,
-                notifier=self.notifier,
-            )
+        if poster:
             self._posters[name] = poster
-
-        # Retweeter
-        retweeter = TwitterRetweeter(
-            automation, self.db, name, acct, notifier=self.notifier
-        )
         self._retweeters[name] = retweeter
-
-        # Human simulator
-        simulator = HumanSimulator(automation, self.db, name, acct)
         self._simulators[name] = simulator
-
-        # Replier
-        replier = TwitterReplier(
-            automation, self.db, name, acct, notifier=self.notifier
-        )
         self._repliers[name] = replier
 
         self.db.update_account_status(name, status="idle", error_message=None)
-        logger.info(f"[{name}] Account set up successfully")
+        logger.info(f"[{name}] {platform_label} account set up successfully")
         return True
 
     # ------------------------------------------------------------------
@@ -205,6 +259,7 @@ class Application:
     # ------------------------------------------------------------------
     def schedule_account(self, acct: dict) -> None:
         name = acct["name"]
+        platform = self._get_platform(acct)
 
         # Posting schedule
         posting_cfg = acct.get("posting", {})
@@ -227,12 +282,19 @@ class Application:
                 callback=partial(self._enqueue_task, name, "drive_sync", self._posters[name].run_posting_cycle),
             )
 
-        # Retweet schedule
-        rt_cfg = acct.get("retweeting", {})
+        # Retweet / Repost schedule
+        # Twitter uses "retweeting", Threads uses "reposting"
+        if platform == "threads":
+            rt_cfg = acct.get("reposting", {})
+            daily_limit = rt_cfg.get("max_per_day", 5)
+        else:
+            rt_cfg = acct.get("retweeting", {})
+            daily_limit = rt_cfg.get("daily_limit", 3)
+
         if rt_cfg.get("enabled") and name in self._retweeters:
             self.job_manager.add_retweet_jobs(
                 name,
-                daily_limit=rt_cfg.get("daily_limit", 3),
+                daily_limit=daily_limit,
                 time_windows=rt_cfg.get("time_windows", []),
                 callback=partial(self._enqueue_task, name, "retweet", self._retweeters[name].run_retweet_cycle),
             )
@@ -377,12 +439,6 @@ class Application:
 
     def _try_recover_browser(self, name: str) -> None:
         """Attempt to restart a crashed browser profile and re-wire components."""
-        from src.twitter.automation import TwitterAutomation
-        from src.twitter.poster import TwitterPoster
-        from src.twitter.retweeter import TwitterRetweeter
-        from src.twitter.human_simulator import HumanSimulator
-        from src.twitter.replier import TwitterReplier
-
         acct = None
         for a in self.config.enabled_accounts:
             if a.get("name") == name:
@@ -391,12 +447,12 @@ class Application:
         if not acct:
             return
 
-        twitter_cfg = acct["twitter"]
-        profile_id = twitter_cfg.get("profile_id") or twitter_cfg.get("dolphin_profile_id")
+        platform_cfg = self._get_platform_cfg(acct)
+        profile_id = platform_cfg.get("profile_id") or platform_cfg.get("dolphin_profile_id")
+        platform_label = "Threads" if self._get_platform(acct) == "threads" else "Twitter"
 
         logger.info(f"[{name}] Attempting auto-recovery — restarting browser...")
         try:
-            # Stop the old profile gracefully
             try:
                 self.profile_manager.stop_browser(profile_id)
             except Exception:
@@ -409,34 +465,21 @@ class Application:
             self.notifier.alert_generic(name, "Auto-Recovery Failed", str(exc))
             return
 
-        automation = TwitterAutomation(driver, self.config.delays)
+        automation, poster, retweeter, simulator, replier = (
+            self._create_platform_components(acct, driver)
+        )
         self._automations[name] = automation
 
         if not automation.is_logged_in():
-            logger.warning(f"[{name}] Recovered browser but not logged in to Twitter")
+            logger.warning(f"[{name}] Recovered browser but not logged in to {platform_label}")
             self.db.update_account_status(name, status="error", error_message="Not logged in after recovery")
             self.notifier.alert_not_logged_in(name)
             return
 
-        # Re-wire poster, retweeter, simulator, replier with the new automation instance
-        if self.file_monitor:
-            poster = TwitterPoster(
-                automation, self.file_monitor, self.db, name, acct,
-                notifier=self.notifier,
-            )
+        if poster:
             self._posters[name] = poster
-
-        retweeter = TwitterRetweeter(
-            automation, self.db, name, acct, notifier=self.notifier
-        )
         self._retweeters[name] = retweeter
-
-        simulator = HumanSimulator(automation, self.db, name, acct)
         self._simulators[name] = simulator
-
-        replier = TwitterReplier(
-            automation, self.db, name, acct, notifier=self.notifier
-        )
         self._repliers[name] = replier
 
         self.db.update_account_status(name, status="idle", error_message=None)
@@ -452,15 +495,19 @@ class Application:
     # ------------------------------------------------------------------
     def _print_dashboard(self) -> None:
         print("\n" + "=" * 60)
-        print("  BunnyTweets – Twitter Multi-Account Automation")
+        print("  BunnyTweets – Multi-Platform Social Media Automation")
         print("=" * 60)
         for acct in self.config.enabled_accounts:
             name = acct["name"]
+            platform = self._get_platform(acct)
             status_obj = self.db.get_account_status(name)
             status = status_obj.status if status_obj else "unknown"
             rt_today = self.db.get_retweets_today(name)
-            rt_limit = acct.get("retweeting", {}).get("daily_limit", 3)
-            print(f"  [{name}] status={status}  retweets={rt_today}/{rt_limit}")
+            if platform == "threads":
+                rt_limit = acct.get("reposting", {}).get("max_per_day", 5)
+            else:
+                rt_limit = acct.get("retweeting", {}).get("daily_limit", 3)
+            print(f"  [{name}] platform={platform}  status={status}  retweets={rt_today}/{rt_limit}")
         print()
         jobs = self.job_manager.get_jobs_summary()
         print(f"  Scheduled jobs: {len(jobs)}")

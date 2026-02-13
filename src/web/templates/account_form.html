@@ -11,17 +11,26 @@
 
         <form method="POST">
             <!-- Basic Info -->
+            {% set current_platform = account.get('platform', 'twitter') if account else 'twitter' %}
+            {% set pcfg = account.get(current_platform, account.get('twitter', {})) if account else {} %}
             <div class="card border-secondary mb-3">
                 <div class="card-header">Basic Info</div>
                 <div class="card-body">
                     <div class="row g-3">
-                        <div class="col-md-6">
+                        <div class="col-md-4">
                             <label class="form-label">Account Name</label>
                             <input type="text" class="form-control" name="name"
                                    value="{{ account.name if account else '' }}"
                                    placeholder="e.g. MyMainAccount" required>
                         </div>
-                        <div class="col-md-6 d-flex align-items-end">
+                        <div class="col-md-4">
+                            <label class="form-label">Platform</label>
+                            <select class="form-select" name="platform" id="platform-select">
+                                <option value="twitter" {% if current_platform == 'twitter' %}selected{% endif %}>Twitter / X</option>
+                                <option value="threads" {% if current_platform == 'threads' %}selected{% endif %}>Threads.net</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4 d-flex align-items-end">
                             <div class="form-check">
                                 <input class="form-check-input" type="checkbox" name="enabled" id="enabled"
                                        {% if not edit or (account and account.get('enabled', True)) %}checked{% endif %}>
@@ -32,21 +41,23 @@
                 </div>
             </div>
 
-            <!-- Twitter -->
+            <!-- Platform Credentials -->
             <div class="card border-secondary mb-3">
-                <div class="card-header"><i class="bi bi-twitter me-2"></i>Twitter</div>
+                <div class="card-header">
+                    <i class="bi bi-person-badge me-2"></i>Platform Credentials
+                </div>
                 <div class="card-body">
                     <div class="row g-3">
                         <div class="col-md-6">
                             <label class="form-label">Username</label>
-                            <input type="text" class="form-control" name="twitter.username"
-                                   value="{{ account.twitter.username if account and account.twitter else '' }}"
+                            <input type="text" class="form-control" name="platform_username"
+                                   value="{{ pcfg.get('username', '') }}"
                                    placeholder="@yourhandle" required>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Browser Profile ID ({{ provider }})</label>
-                            <input type="text" class="form-control" name="twitter.profile_id"
-                                   value="{{ account.twitter.profile_id if account and account.twitter else '' }}"
+                            <input type="text" class="form-control" name="platform_profile_id"
+                                   value="{{ pcfg.get('profile_id', '') }}"
                                    placeholder="Profile ID from {{ provider }}" required>
                         </div>
                     </div>

@@ -77,8 +77,9 @@ def add_save():
     data["accounts"].append(acct)
     state.save_accounts(data)
 
-    # Auto-add new account's twitter username to global retweet pool
-    username = acct.get("twitter", {}).get("username", "")
+    # Auto-add new account's username to global retweet/repost pool
+    platform = acct.get("platform", "twitter")
+    username = acct.get(platform, {}).get("username", "")
     if username:
         state.db.add_global_target(username)
 
@@ -109,14 +110,17 @@ def edit_save(name):
         return redirect(url_for("accounts.index"))
 
     # Track old username so we can update the global target pool
-    old_username = data["accounts"][idx].get("twitter", {}).get("username", "")
+    old_acct = data["accounts"][idx]
+    old_platform = old_acct.get("platform", "twitter")
+    old_username = old_acct.get(old_platform, old_acct.get("twitter", {})).get("username", "")
 
     acct = _parse_account_form(request.form)
     data["accounts"][idx] = acct
     state.save_accounts(data)
 
     # Update global target pool if username changed
-    new_username = acct.get("twitter", {}).get("username", "")
+    new_platform = acct.get("platform", "twitter")
+    new_username = acct.get(new_platform, {}).get("username", "")
     if old_username and new_username and old_username != new_username:
         state.db.update_global_target(old_username, new_username)
     elif new_username and not old_username:
@@ -218,12 +222,17 @@ def _find_account_index(accounts, name):
 
 def _parse_account_form(form):
     """Parse the account form into the YAML-compatible dict structure."""
+    platform = form.get("platform", "twitter").strip()
+    username = form.get("platform_username", "").strip()
+    profile_id = form.get("platform_profile_id", "").strip()
+
     acct = {
         "name": form.get("name", "").strip(),
+        "platform": platform,
         "enabled": "enabled" in form,
-        "twitter": {
-            "username": form.get("twitter.username", "").strip(),
-            "profile_id": form.get("twitter.profile_id", "").strip(),
+        platform: {
+            "username": username,
+            "profile_id": profile_id,
         },
     }
 
