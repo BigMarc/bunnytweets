@@ -272,16 +272,6 @@ class Application:
                     callback=partial(self._enqueue_task, name, "post", self._posters[name].run_posting_cycle),
                 )
 
-        # Drive sync interval
-        drive_cfg = acct.get("google_drive", {})
-        interval = drive_cfg.get("check_interval_minutes", 15)
-        if self.file_monitor and name in self._posters:
-            self.job_manager.add_drive_sync_job(
-                name,
-                interval,
-                callback=partial(self._enqueue_task, name, "drive_sync", self._posters[name].run_posting_cycle),
-            )
-
         # Retweet / Repost schedule
         # Twitter uses "retweeting", Threads uses "reposting"
         if platform == "threads":
