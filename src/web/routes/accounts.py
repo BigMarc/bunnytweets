@@ -23,10 +23,16 @@ def _get_form_context(state, acct=None):
         ctas = state.db.get_cta_texts(acct["name"])
         cta_texts = [{"id": c.id, "text": c.text} for c in ctas]
 
+    reply_templates = []
+    if acct and acct.get("name"):
+        tpls = state.db.get_reply_templates(acct["name"])
+        reply_templates = [{"id": t.id, "text": t.text} for t in tpls]
+
     return {
         "all_categories": all_cats,
         "selected_categories": selected,
         "cta_texts": cta_texts,
+        "reply_templates": reply_templates,
     }
 
 
@@ -160,6 +166,27 @@ def delete_cta(name, cta_id):
     return jsonify({"success": False, "message": "CTA text not found"})
 
 
+@bp.route("/<name>/reply-template/add", methods=["POST"])
+def add_reply_template(name):
+    state = current_app.config["APP_STATE"]
+    data = request.get_json(silent=True) or {}
+    text = data.get("text", "").strip()
+    if not text:
+        return jsonify({"success": False, "message": "Template text is required"})
+
+    tpl = state.db.add_reply_template(name, text)
+    return jsonify({"success": True, "id": tpl.id, "message": "Reply template added"})
+
+
+@bp.route("/<name>/reply-template/<int:tpl_id>/delete", methods=["POST"])
+def delete_reply_template(name, tpl_id):
+    state = current_app.config["APP_STATE"]
+    ok = state.db.delete_reply_template(tpl_id)
+    if ok:
+        return jsonify({"success": True, "message": "Reply template deleted"})
+    return jsonify({"success": False, "message": "Reply template not found"})
+
+
 def _find_account(state, name):
     for acct in state.config.accounts:
         if acct.get("name") == name:
@@ -285,6 +312,28 @@ def _parse_account_form(form):
         acct["human_simulation"]["time_windows"] = sim_windows or [
             {"start": "08:00", "end": "12:00"},
             {"start": "18:00", "end": "23:00"},
+        ]
+
+    # Reply to replies
+    reply_enabled = "reply_to_replies.enabled" in form
+    acct["reply_to_replies"] = {"enabled": reply_enabled}
+    if reply_enabled:
+        acct["reply_to_replies"]["daily_limit"] = _to_int(
+            form.get("reply_to_replies.daily_limit", "10"), 10
+        )
+
+        # Reply time windows
+        reply_windows = []
+        i = 0
+        while True:
+            start = form.get(f"reply_window_{i}_start", "").strip()
+            end = form.get(f"reply_window_{i}_end", "").strip()
+            if not start or not end:
+                break
+            reply_windows.append({"start": start, "end": end})
+            i += 1
+        acct["reply_to_replies"]["time_windows"] = reply_windows or [
+            {"start": "09:00", "end": "22:00"},
         ]
 
     return acct

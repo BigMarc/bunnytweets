@@ -88,6 +88,25 @@ def jobs():
         return jsonify([])
 
 
+@bp.route("/analytics")
+def analytics():
+    state = current_app.config["APP_STATE"]
+    days = 30
+    try:
+        daily = state.db.get_daily_activity(days)
+        sf = state.db.get_success_failure_counts(days)
+        per_account = state.db.get_per_account_stats(days)
+        rotation = state.db.get_file_use_distribution()
+    except Exception:
+        daily, sf, per_account, rotation = [], {}, [], []
+    return jsonify({
+        "daily_activity": daily,
+        "success_failure": sf,
+        "per_account": per_account,
+        "rotation": rotation,
+    })
+
+
 @bp.route("/queue")
 def queue():
     state = current_app.config["APP_STATE"]

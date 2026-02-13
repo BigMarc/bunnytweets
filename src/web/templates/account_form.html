@@ -315,6 +315,81 @@
                 </div>
             </div>
 
+            <!-- Reply to Replies -->
+            <div class="card border-secondary mb-3">
+                <div class="card-header"><i class="bi bi-reply me-2"></i>Reply to Replies</div>
+                <div class="card-body">
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" name="reply_to_replies.enabled" id="reply-enabled"
+                               {% if account and account.get('reply_to_replies', {}).get('enabled', False) %}checked{% endif %}>
+                        <label class="form-check-label" for="reply-enabled">Enable Auto-Replies</label>
+                        <div class="form-text">Bot will check notifications and reply to mentions using templates</div>
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Daily Limit</label>
+                            <input type="number" class="form-control" name="reply_to_replies.daily_limit"
+                                   value="{{ account.reply_to_replies.daily_limit if account and account.get('reply_to_replies') else 10 }}">
+                        </div>
+                    </div>
+
+                    <!-- Reply Time Windows -->
+                    <label class="form-label">Reply Time Windows</label>
+                    <div id="reply-windows-container">
+                        {% set reply_windows = account.reply_to_replies.time_windows if account and account.get('reply_to_replies', {}).get('time_windows') else [{'start': '09:00', 'end': '22:00'}] %}
+                        {% for w in reply_windows %}
+                        <div class="row g-2 mb-2 reply-window-row">
+                            <div class="col-4">
+                                <input type="text" class="form-control form-control-sm" name="reply_window_{{ loop.index0 }}_start"
+                                       value="{{ w.start }}" placeholder="HH:MM">
+                            </div>
+                            <div class="col-1 text-center pt-1">to</div>
+                            <div class="col-4">
+                                <input type="text" class="form-control form-control-sm" name="reply_window_{{ loop.index0 }}_end"
+                                       value="{{ w.end }}" placeholder="HH:MM">
+                            </div>
+                            <div class="col-3">
+                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRow(this)">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-secondary mb-3" onclick="addReplyWindow()">
+                        <i class="bi bi-plus me-1"></i>Add Time Window
+                    </button>
+
+                    <!-- Reply Templates -->
+                    <hr>
+                    <label class="form-label fw-bold">Reply Templates</label>
+                    <p class="form-text mt-0 mb-2">Bot picks a random template when replying to mentions.</p>
+
+                    <div id="reply-template-list">
+                        {% if reply_templates %}
+                            {% for tpl in reply_templates %}
+                            <div class="d-flex align-items-start mb-2 reply-tpl-item" data-tpl-id="{{ tpl.id }}">
+                                <span class="form-control form-control-sm bg-dark text-light me-2" style="min-height:auto;">{{ tpl.text }}</span>
+                                <button type="button" class="btn btn-sm btn-outline-danger flex-shrink-0" onclick="deleteReplyTemplate({{ tpl.id }}, this)">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                            <p class="text-muted small" id="no-reply-tpl-msg">No reply templates configured yet.</p>
+                        {% endif %}
+                    </div>
+
+                    <div class="input-group mt-2">
+                        <input type="text" class="form-control form-control-sm" id="new-reply-template"
+                               placeholder="e.g. Thanks for the love! Check out my pinned tweet">
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="addReplyTemplate()">
+                            <i class="bi bi-plus me-1"></i>Add Template
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             <div class="d-flex justify-content-between mb-4">
                 <a href="/accounts" class="btn btn-secondary">
                     <i class="bi bi-arrow-left me-1"></i>Back
@@ -385,6 +460,60 @@ async function deleteCta(ctaId, btn) {
         }
     } catch (e) {
         showToast('Failed to delete CTA text', 'danger');
+    }
+}
+
+// Reply template management (AJAX)
+async function addReplyTemplate() {
+    const input = document.getElementById('new-reply-template');
+    const text = input.value.trim();
+    if (!text) return;
+
+    try {
+        const resp = await fetch(`/accounts/${encodeURIComponent(accountName)}/reply-template/add`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({text: text}),
+        });
+        const data = await resp.json();
+        if (data.success) {
+            const noMsg = document.getElementById('no-reply-tpl-msg');
+            if (noMsg) noMsg.remove();
+
+            const list = document.getElementById('reply-template-list');
+            const html = `
+                <div class="d-flex align-items-start mb-2 reply-tpl-item" data-tpl-id="${data.id}">
+                    <span class="form-control form-control-sm bg-dark text-light me-2" style="min-height:auto;">${text}</span>
+                    <button type="button" class="btn btn-sm btn-outline-danger flex-shrink-0" onclick="deleteReplyTemplate(${data.id}, this)">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>`;
+            list.insertAdjacentHTML('beforeend', html);
+            input.value = '';
+            showToast('Reply template added', 'success');
+        } else {
+            showToast(data.message || 'Failed to add template', 'danger');
+        }
+    } catch (e) {
+        showToast('Failed to add reply template', 'danger');
+    }
+}
+
+async function deleteReplyTemplate(tplId, btn) {
+    try {
+        const resp = await fetch(`/accounts/${encodeURIComponent(accountName)}/reply-template/${tplId}/delete`, {
+            method: 'POST',
+        });
+        const data = await resp.json();
+        if (data.success) {
+            const item = btn.closest('.reply-tpl-item');
+            if (item) item.remove();
+            showToast('Reply template deleted', 'success');
+        } else {
+            showToast(data.message || 'Failed to delete template', 'danger');
+        }
+    } catch (e) {
+        showToast('Failed to delete reply template', 'danger');
     }
 }
 </script>

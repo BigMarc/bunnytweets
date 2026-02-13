@@ -414,3 +414,42 @@ class TwitterAutomation:
     def navigate_notifications(self) -> None:
         """Navigate to the Notifications page."""
         self.navigate_to(f"{TWITTER_BASE}/notifications")
+
+    def get_notification_replies(self, limit: int = 15) -> list[dict]:
+        """Scrape mentions from the Notifications > Mentions tab.
+
+        Returns a list of dicts: [{"url": "...", "tweet_id": "..."}]
+        """
+        self.navigate_to(f"{TWITTER_BASE}/notifications/mentions")
+        self._page_delay()
+
+        mentions: list[dict] = []
+        try:
+            WebDriverWait(self.driver, 15).until(
+                EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, 'article[data-testid="tweet"]')
+                )
+            )
+
+            articles = self.driver.find_elements(
+                By.CSS_SELECTOR, 'article[data-testid="tweet"]'
+            )
+
+            for article in articles[:limit]:
+                try:
+                    time_link = article.find_element(
+                        By.CSS_SELECTOR, "a time"
+                    ).find_element(By.XPATH, "..")
+                    href = time_link.get_attribute("href")
+                    if href and "/status/" in href:
+                        tweet_id = self.get_tweet_id_from_url(href)
+                        if tweet_id:
+                            mentions.append({"url": href, "tweet_id": tweet_id})
+                except NoSuchElementException:
+                    continue
+
+        except TimeoutException:
+            logger.debug("No mentions found in notifications")
+
+        logger.debug(f"Found {len(mentions)} mentions in notifications")
+        return mentions

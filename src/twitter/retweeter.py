@@ -42,6 +42,20 @@ class TwitterRetweeter:
             )
             return False
 
+        try:
+            return self._do_retweet(daily_limit, current_count)
+        except Exception as exc:
+            logger.error(
+                f"[{self.account_name}] Retweet cycle failed: {exc}"
+            )
+            if self.notifier:
+                self.notifier.alert_retweet_failed(
+                    self.account_name, f"Unexpected error: {str(exc)[:200]}"
+                )
+            raise  # Let QueueHandler retry logic handle it
+
+    def _do_retweet(self, daily_limit: int, current_count: int) -> bool:
+        rt_cfg = self.config.get("retweeting", {})
         targets = rt_cfg.get("target_profiles", [])
         strategy = rt_cfg.get("strategy", "latest")
 
