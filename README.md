@@ -23,6 +23,7 @@ A fully automated Twitter/X multi-account management system. Posts content from 
 - [Google Drive Setup (Optional)](#google-drive-setup-optional)
 - [Usage](#usage)
   - [Starting the Web Dashboard](#starting-the-web-dashboard)
+  - [Starting the Desktop App](#starting-the-desktop-app)
   - [Starting the Automation (CLI)](#starting-the-automation-cli)
   - [All CLI Commands](#all-cli-commands)
 - [Web Dashboard Guide](#web-dashboard-guide)
@@ -38,6 +39,7 @@ A fully automated Twitter/X multi-account management system. Posts content from 
   - [settings.yaml](#settingsyaml)
   - [accounts.yaml](#accountsyaml)
 - [Environment Variables](#environment-variables)
+- [Desktop App (Build from Source)](#desktop-app-build-from-source)
 - [Docker Deployment](#docker-deployment)
 - [Project Structure](#project-structure)
 - [Troubleshooting](#troubleshooting)
@@ -57,6 +59,7 @@ A fully automated Twitter/X multi-account management system. Posts content from 
 - **Interactive Setup Wizard** - Step-by-step CLI wizard for first-time configuration
 - **Human-Like Behavior** - Randomized delays for typing, clicking, and page loads to avoid detection
 - **Per-Account Logging** - Separate log files for each account plus a main log, with daily rotation
+- **Desktop App** - Run as a native desktop app with a system tray icon (macOS `.app` / Windows `.exe`)
 - **Docker-Ready** - Deploy with Docker Compose in minutes
 
 ---
@@ -370,6 +373,31 @@ To use a different port:
 python main.py --web --port 8080
 ```
 
+### Starting the Desktop App
+
+For a native desktop experience with a system tray icon:
+
+```bash
+python main.py --desktop
+```
+
+This launches the web dashboard **and** a system tray icon. Your default browser opens automatically to `http://localhost:8080`. The tray icon provides quick access to:
+
+- **Open Dashboard** - Opens the web UI in your browser (also triggered by double-clicking the icon)
+- **Start / Stop Engine** - Control the automation engine
+- **Quit** - Gracefully shuts everything down
+
+You can also run the desktop launcher directly:
+
+```bash
+python desktop.py                  # System tray + auto-open browser
+python desktop.py --headless       # No tray (useful for CI / Docker)
+python desktop.py --no-browser     # Tray, but don't auto-open browser
+python desktop.py --port 9000      # Use a different port
+```
+
+See [Desktop App (Build from Source)](#desktop-app-build-from-source) to package it as a standalone `.app` (macOS) or `.exe` (Windows).
+
 ### Starting the Automation (CLI)
 
 If you prefer running without the web dashboard:
@@ -392,6 +420,7 @@ This starts the automation engine directly in the terminal. It will:
 |---------|-------------|
 | `python main.py` | Start the automation engine (all enabled accounts) |
 | `python main.py --web` | Launch the web dashboard (http://localhost:8080) |
+| `python main.py --desktop` | Launch the desktop app (dashboard + system tray) |
 | `python main.py --web --port 8080` | Launch the dashboard on a custom port |
 | `python main.py --setup` | Run the interactive first-time setup wizard |
 | `python main.py --add-account` | Add a new account to your existing config |
@@ -647,6 +676,57 @@ TZ=America/New_York
 
 ---
 
+## Desktop App (Build from Source)
+
+You can package BunnyTweets as a standalone desktop application — a `.app` bundle on macOS or a `.exe` on Windows. No Python installation required on the target machine.
+
+### Prerequisites
+
+```bash
+pip install pyinstaller>=6.0 pystray>=0.19.5
+```
+
+### Building
+
+**macOS / Linux:**
+```bash
+./scripts/build.sh
+```
+
+**Windows:**
+```bat
+scripts\build.bat
+```
+
+### Output
+
+| Platform | Output | Install |
+|----------|--------|---------|
+| macOS | `dist/BunnyTweets.app` | Drag to `/Applications` |
+| Windows | `dist/BunnyTweets/BunnyTweets.exe` | Run directly or wrap with [Inno Setup](https://jrsoftware.org/isinfo.php) |
+
+### Creating a macOS .dmg
+
+```bash
+hdiutil create -volname BunnyTweets -srcfolder dist/BunnyTweets.app -ov -format UDZO dist/BunnyTweets.dmg
+```
+
+### Automated Builds (GitHub Actions)
+
+A CI workflow (`.github/workflows/build-desktop.yml`) automatically builds both macOS and Windows artifacts:
+
+- **On version tags** (`git tag v1.0.0 && git push --tags`) — builds both platforms and creates a GitHub Release with the `.dmg` and `.zip` attached
+- **Manual trigger** — run the workflow from the Actions tab at any time
+
+### Clean Up
+
+```bash
+./scripts/build.sh clean    # macOS / Linux
+scripts\build.bat clean     # Windows
+```
+
+---
+
 ## Docker Deployment
 
 ### Quick Start with Docker
@@ -713,11 +793,19 @@ This installs Python, Chrome, and all system dependencies needed for Selenium.
 
 ```
 bunnytweets/
-├── main.py                          # Entry point (CLI args: --web, --setup, --status, etc.)
+├── main.py                          # Entry point (CLI args: --web, --desktop, --setup, etc.)
+├── desktop.py                       # Desktop launcher (system tray + Flask)
+├── bunnytweets.spec                 # PyInstaller build spec (.app / .exe)
 ├── requirements.txt                 # Python dependencies
 ├── Dockerfile                       # Docker build configuration
 ├── docker-compose.yml               # Docker Compose deployment
 ├── setup_vps.sh                     # VPS setup script (Ubuntu/Debian)
+├── scripts/
+│   ├── build.sh                     # macOS / Linux build script
+│   └── build.bat                    # Windows build script
+├── .github/
+│   └── workflows/
+│       └── build-desktop.yml        # CI: cross-platform desktop builds + releases
 ├── config/
 │   ├── settings.yaml.example        # Global settings template
 │   ├── accounts.yaml.example        # Account config template
