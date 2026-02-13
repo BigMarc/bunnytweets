@@ -77,6 +77,11 @@ def add_save():
     data["accounts"].append(acct)
     state.save_accounts(data)
 
+    # Auto-add new account's twitter username to global retweet pool
+    username = acct.get("twitter", {}).get("username", "")
+    if username:
+        state.db.add_global_target(username)
+
     flash(f"Account '{acct['name']}' added!", "success")
     return redirect(url_for("accounts.index"))
 
@@ -103,9 +108,19 @@ def edit_save(name):
         flash(f"Account '{name}' not found.", "danger")
         return redirect(url_for("accounts.index"))
 
+    # Track old username so we can update the global target pool
+    old_username = data["accounts"][idx].get("twitter", {}).get("username", "")
+
     acct = _parse_account_form(request.form)
     data["accounts"][idx] = acct
     state.save_accounts(data)
+
+    # Update global target pool if username changed
+    new_username = acct.get("twitter", {}).get("username", "")
+    if old_username and new_username and old_username != new_username:
+        state.db.update_global_target(old_username, new_username)
+    elif new_username and not old_username:
+        state.db.add_global_target(new_username)
 
     flash(f"Account '{name}' updated!", "success")
     return redirect(url_for("accounts.index"))

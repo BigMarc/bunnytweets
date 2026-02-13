@@ -128,6 +128,15 @@ class ReplyTemplate(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class GlobalTarget(Base):
+    """Global retweet pool — every account retweets posts from these usernames."""
+    __tablename__ = "global_targets"
+
+    id = Column(Integer, primary_key=True)
+    username = Column(String, unique=True, nullable=False)
+    added_at = Column(DateTime, default=datetime.utcnow)
+
+
 class Database:
     """Thin wrapper around SQLAlchemy for state tracking."""
 
@@ -627,5 +636,57 @@ class Database:
             if not tpl:
                 return False
             s.delete(tpl)
+            s.commit()
+            return True
+
+    # ----- Global targets (shared retweet pool) -----
+    def get_global_targets(self) -> list[GlobalTarget]:
+        with self.session() as s:
+            return s.query(GlobalTarget).order_by(GlobalTarget.added_at.desc()).all()
+
+    def get_global_target_usernames(self) -> list[str]:
+        """Return just the username strings."""
+        return [t.username for t in self.get_global_targets()]
+
+    def add_global_target(self, username: str) -> GlobalTarget | None:
+        """Add a username to the global pool. Returns None if it already exists."""
+        clean = username.strip().lstrip("@")
+        if not clean:
+            return None
+        handle = f"@{clean}"
+        with self.session() as s:
+            existing = s.query(GlobalTarget).filter_by(username=handle).first()
+            if existing:
+                return existing
+            target = GlobalTarget(username=handle)
+            s.add(target)
+            s.commit()
+            s.refresh(target)
+            return target
+
+    def update_global_target(self, old_username: str, new_username: str) -> None:
+        """Rename a global target (e.g. when an account's twitter handle changes)."""
+        old_handle = f"@{old_username.strip().lstrip('@')}"
+        new_handle = f"@{new_username.strip().lstrip('@')}"
+        if old_handle == new_handle:
+            return
+        with self.session() as s:
+            target = s.query(GlobalTarget).filter_by(username=old_handle).first()
+            if target:
+                # Check if new handle already exists
+                dup = s.query(GlobalTarget).filter_by(username=new_handle).first()
+                if dup:
+                    # New handle already in pool — just remove the old one
+                    s.delete(target)
+                else:
+                    target.username = new_handle
+                s.commit()
+
+    def delete_global_target(self, target_id: int) -> bool:
+        with self.session() as s:
+            target = s.query(GlobalTarget).get(target_id)
+            if not target:
+                return False
+            s.delete(target)
             s.commit()
             return True
