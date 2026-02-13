@@ -48,9 +48,22 @@ class TwitterAutomation:
         time.sleep(random.uniform(lo, hi))
 
     def _human_type(self, element, text: str) -> None:
-        """Type text character-by-character with random delays."""
+        """Type text character-by-character with random delays.
+
+        Non-BMP characters (emoji, etc.) are inserted via JavaScript
+        because ChromeDriver's ``send_keys`` only supports BMP chars.
+        """
+        element.click()
         for ch in text:
-            element.send_keys(ch)
+            if ord(ch) > 0xFFFF:
+                # Non-BMP: use JS insertText which handles all Unicode
+                self.driver.execute_script(
+                    "arguments[0].focus();"
+                    "document.execCommand('insertText', false, arguments[1]);",
+                    element, ch,
+                )
+            else:
+                element.send_keys(ch)
             self._typing_delay()
 
     # ------------------------------------------------------------------
@@ -147,8 +160,13 @@ class TwitterAutomation:
             textarea.click()
             self._action_delay()
 
-            # Type tweet text
+            # Type tweet text (re-locate textarea to avoid stale reference)
             if text:
+                textarea = WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located(
+                        (By.CSS_SELECTOR, 'div[data-testid="tweetTextarea_0"]')
+                    )
+                )
                 self._human_type(textarea, text)
                 self._action_delay()
 
@@ -280,7 +298,12 @@ class TwitterAutomation:
             reply_box.click()
             self._action_delay()
 
-            # Type the reply text
+            # Type the reply text (re-locate to avoid stale reference)
+            reply_box = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, 'div[data-testid="tweetTextarea_0"]')
+                )
+            )
             self._human_type(reply_box, text)
             self._action_delay()
 
