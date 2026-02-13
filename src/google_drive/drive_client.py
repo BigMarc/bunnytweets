@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import time
 from pathlib import Path
 from typing import Any
 
@@ -91,23 +92,41 @@ class DriveClient:
 
         return files
 
-    def download_file(self, file_id: str, destination: Path) -> Path:
-        """Download a file from Google Drive to a local path."""
+    def download_file(
+        self, file_id: str, destination: Path, max_retries: int = 3
+    ) -> Path:
+        """Download a file from Google Drive to a local path.
+
+        Retries with exponential back-off on transient network / SSL errors.
+        """
         destination.parent.mkdir(parents=True, exist_ok=True)
-        request = self.service.files().get_media(
-            fileId=file_id, supportsAllDrives=True
-        )
-        with open(destination, "wb") as fh:
-            downloader = MediaIoBaseDownload(fh, request)
-            done = False
-            while not done:
-                status, done = downloader.next_chunk()
-                if status:
-                    logger.debug(
-                        f"Download {file_id}: {int(status.progress() * 100)}%"
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                request = self.service.files().get_media(
+                    fileId=file_id, supportsAllDrives=True
+                )
+                with open(destination, "wb") as fh:
+                    downloader = MediaIoBaseDownload(fh, request)
+                    done = False
+                    while not done:
+                        status, done = downloader.next_chunk()
+                        if status:
+                            logger.debug(
+                                f"Download {file_id}: {int(status.progress() * 100)}%"
+                            )
+                logger.info(f"Downloaded {file_id} -> {destination}")
+                return destination
+            except Exception as exc:
+                if attempt < max_retries:
+                    delay = 2 ** attempt
+                    logger.warning(
+                        f"Download {file_id} failed (attempt {attempt}/{max_retries}): "
+                        f"{exc}. Retrying in {delay}s…"
                     )
-        logger.info(f"Downloaded {file_id} -> {destination}")
-        return destination
+                    time.sleep(delay)
+                else:
+                    raise
 
     def get_file_metadata(self, file_id: str) -> dict:
         return (
