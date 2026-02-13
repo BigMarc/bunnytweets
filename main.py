@@ -546,6 +546,7 @@ class Application:
 def main():
     parser = argparse.ArgumentParser(description="BunnyTweets – Twitter Automation")
     parser.add_argument("--web", action="store_true", help="Launch the web dashboard")
+    parser.add_argument("--desktop", action="store_true", help="Launch desktop app (dashboard + system tray)")
     parser.add_argument("--port", type=int, default=8080, help="Web dashboard port (default: 8080)")
     parser.add_argument("--setup", action="store_true", help="Interactive first-time setup wizard")
     parser.add_argument("--add-account", action="store_true", help="Add a new Twitter account interactively")
@@ -562,6 +563,14 @@ def main():
     if args.add_account:
         from src.core.setup_wizard import run_add_account
         run_add_account()
+        return
+
+    # Desktop mode — dashboard + system tray
+    if args.desktop:
+        from desktop import main as desktop_main
+        import sys
+        sys.argv = ["desktop.py", f"--port={args.port}"]
+        desktop_main()
         return
 
     # Web dashboard — lightweight, no Selenium required
