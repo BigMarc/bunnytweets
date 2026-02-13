@@ -27,5 +27,11 @@ loguru==0.7.2
 # Web Dashboard
 flask==3.0.0
 
+# Desktop App (system tray)
+pystray>=0.19.5
+
+# Build / Packaging (install only when building .exe / .app)
+# pyinstaller>=6.0
+
 # Testing
 pytest>=7.0

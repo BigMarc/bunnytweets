@@ -32,5 +32,8 @@ data/database/*
 !data/logs/.gitkeep
 !data/database/.gitkeep
 
+# PyInstaller
+*.spec.bak
+
 # Docker
 *.log
