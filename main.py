@@ -4,6 +4,7 @@
 Usage:
     python main.py              Start the automation (all enabled accounts)
     python main.py --web        Launch the web dashboard (http://localhost:8080)
+    python main.py --desktop    Launch desktop app (dashboard + system tray)
     python main.py --setup      Interactive first-time setup wizard
     python main.py --add-account  Add a new Twitter account interactively
     python main.py --status     Show account status dashboard
