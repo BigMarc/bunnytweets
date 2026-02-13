@@ -104,6 +104,10 @@ class QueueHandler:
 
             with self._lock:
                 if task.account_name in self._running:
+                    logger.debug(
+                        f"Account {task.account_name} is busy — "
+                        f"re-queuing {task.task_type} task"
+                    )
                     self._queue.put(task)
                     continue
 

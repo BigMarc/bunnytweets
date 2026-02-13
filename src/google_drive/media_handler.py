@@ -119,8 +119,13 @@ class MediaHandler:
             img.save(buf, format="JPEG", quality=_JPEG_QUALITY_MIN, optimize=True)
             scale -= 0.1
 
-        # Write result to .jpg at same location
-        out_path = path.with_suffix(".jpg")
+        # Write result — keep the original path when already JPEG-compatible
+        # to avoid case-sensitivity issues (e.g. .JPG → .jpg on macOS)
+        if path.suffix.lower() in (".jpg", ".jpeg"):
+            out_path = path
+        else:
+            out_path = path.with_suffix(".jpg")
+
         out_path.write_bytes(buf.getvalue())
         final_mb = out_path.stat().st_size / (1024 * 1024)
         logger.info(
@@ -128,7 +133,7 @@ class MediaHandler:
             f"{out_path.name} ({final_mb:.1f} MB, q={quality})"
         )
 
-        # Remove original if the output path differs
+        # Remove original if the output is a genuinely different file
         if out_path != path:
             path.unlink(missing_ok=True)
 
