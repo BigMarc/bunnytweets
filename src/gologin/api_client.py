@@ -128,7 +128,11 @@ class GoLoginClient:
         if not resp.ok:
             logger.error(f"POST stop-profile failed ({resp.status_code}): {resp.text}")
         resp.raise_for_status()
-        return resp.json()
+        # GoLogin may return an empty body on success
+        try:
+            return resp.json()
+        except Exception:
+            return {"status": "success"}
 
     # ------------------------------------------------------------------
     # Remote API – profile listing

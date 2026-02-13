@@ -30,6 +30,8 @@ A fully automated Twitter/X multi-account management system. Posts content from 
   - [Dashboard Page](#dashboard-page)
   - [Settings Page](#settings-page)
   - [Accounts Page](#accounts-page)
+  - [Generator Page](#generator-page)
+  - [Analytics Page](#analytics-page)
   - [Logs Page](#logs-page)
 - [How It Works](#how-it-works)
   - [Posting Flow](#posting-flow)
@@ -53,8 +55,14 @@ A fully automated Twitter/X multi-account management system. Posts content from 
 - **Web Dashboard** - Full browser-based UI for configuration, live monitoring, log viewing, and manual controls
 - **Google Drive Sync** - Automatically downloads and posts images/videos from assigned Google Drive folders
 - **Scheduled Posting** - Configure exact posting times per account (e.g., 09:00, 15:00, 20:00)
+- **Content Generator** - Manage title categories and CTA (call-to-action) self-comment texts via the dashboard
 - **Automated Retweeting** - Retweets from configurable target profiles with daily limits and time windows
+- **Auto-Reply** - Automatically reply to tweets from target profiles using per-account reply templates
+- **Human-Like Simulation** - Browsing sessions that scroll, like, and read tweets to mimic real user behavior
 - **Duplicate Protection** - Already-retweeted tweets and already-posted files are tracked in the database and never processed twice
+- **Analytics Dashboard** - Visual charts for daily activity, success/failure rates, and per-account stats
+- **Discord Notifications** - Webhook alerts for errors, paused accounts, and auto-recovery events
+- **Auto-Recovery** - Crashed browser profiles are automatically restarted and re-wired
 - **State Tracking** - SQLite database for reliable state management across restarts
 - **Interactive Setup Wizard** - Step-by-step CLI wizard for first-time configuration
 - **Human-Like Behavior** - Randomized delays for typing, clicking, and page loads to avoid detection
@@ -466,6 +474,7 @@ Edit all global settings through organized form sections:
 | **Delays** | Action delay min/max, typing speed min/max, page load delay min/max |
 | **Error Handling** | Max retries, retry backoff, pause duration |
 | **Logging** | Log level, retention days, per-account logs |
+| **Discord** | Webhook URL, thread ID, enable/disable notifications |
 | **Database** | Database file path |
 
 API tokens are masked in the form. Leave the token field empty to keep your current token - it will only update if you type a new value.
@@ -493,6 +502,27 @@ Manage all your Twitter accounts:
 | **Retweeting** | Enabled checkbox, daily limit, strategy (latest/random) |
 | **Target Profiles** | Dynamic rows - add/remove target usernames with priorities |
 | **Time Windows** | Dynamic rows - add/remove start/end time pairs |
+| **Human Simulation** | Enabled checkbox, session duration min/max, daily sessions limit, daily likes limit, time windows |
+| **Reply to Replies** | Enabled checkbox, daily limit, time windows |
+| **CTA Texts** | Add/remove call-to-action self-comment texts (saved via AJAX) |
+| **Reply Templates** | Add/remove per-account reply templates (saved via AJAX) |
+
+### Generator Page (`/generator`)
+
+Manage reusable content for automated posting:
+
+- **Title Categories** - Create and delete categories (e.g., "Motivational", "Product", "Engagement"). The "Global" category cannot be deleted
+- **Titles** - Add tweet text to categories. When posting, BunnyTweets picks a random title from the relevant category
+- **Global Target Accounts** - Shared pool of target usernames for retweeting. These can be used across all accounts in addition to per-account targets
+
+### Analytics Page (`/analytics`)
+
+Visual dashboard with charts powered by Chart.js:
+
+- **Daily Activity** - Bar chart of posts, retweets, replies, and simulations over time
+- **Success / Failure Rates** - Breakdown of task outcomes
+- **Per-Account Stats** - Activity distribution across your accounts
+- Data is fetched from `/api/analytics` and rendered client-side
 
 ### Logs Page (`/logs`)
 
@@ -540,7 +570,10 @@ BunnyTweets uses APScheduler for all timing:
 - **Posting Jobs** - Cron-based jobs that fire at the exact times you configure (e.g., 09:00, 15:00, 20:00)
 - **Drive Sync Jobs** - Interval-based jobs that check for new files every N minutes
 - **Retweet Jobs** - Distributed randomly across your time windows. If you set a daily limit of 3 and have 3 time windows, each window gets approximately 1 retweet at a random time within that window
-- **Health Checks** - Every 5 minutes, verifies each browser is still alive and responsive
+- **Simulation Jobs** - Human-like browsing sessions distributed across configured time windows
+- **Reply Jobs** - Auto-reply tasks distributed across their own time windows
+- **CTA Check** - Every 5 minutes, checks if any account has a pending CTA self-comment due (posted >55 min ago)
+- **Health Checks** - Every 5 minutes, verifies each browser is still alive and responsive. Auto-recovery kicks in if a browser is unresponsive
 
 All jobs are managed by a thread-safe queue that ensures only one task runs per account at a time (preventing Selenium race conditions).
 
@@ -601,6 +634,12 @@ logging:
   retention_days: 30       # How long to keep log files
   per_account_logs: true   # Create separate log files per account
 
+# Discord webhook notifications (troubleshooting alerts)
+discord:
+  webhook_url: ""          # Webhook URL for your Discord channel
+  thread_id: ""            # Thread ID if posting to a specific thread (optional)
+  enabled: false           # Enable/disable notifications
+
 # Database
 database:
   path: "data/database/automation.db"  # SQLite database location
@@ -646,6 +685,19 @@ accounts:
         - start: "19:00"
           end: "22:00"
       strategy: "latest"     # "latest" = retweet newest tweet, "random" = random selection
+
+    # Human-like browsing simulation (anti-detection)
+    human_simulation:
+      enabled: true
+      session_duration_min: 30   # Session length range in minutes
+      session_duration_max: 60
+      daily_sessions_limit: 2    # Max simulation sessions per day
+      daily_likes_limit: 30      # Max likes per day across all sessions
+      time_windows:              # When simulation can run
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:00"
 ```
 
 ---
@@ -806,6 +858,7 @@ bunnytweets/
 ├── .github/
 │   └── workflows/
 │       └── build-desktop.yml        # CI: cross-platform desktop builds + releases
+├── .env.example                     # Environment variables template
 ├── config/
 │   ├── settings.yaml.example        # Global settings template
 │   ├── accounts.yaml.example        # Account config template
@@ -816,8 +869,9 @@ bunnytweets/
 ├── src/
 │   ├── core/
 │   │   ├── config_loader.py         # Loads and merges YAML config + env vars
-│   │   ├── database.py              # SQLAlchemy models (ProcessedFile, Retweet, AccountStatus)
+│   │   ├── database.py              # SQLAlchemy models and query methods
 │   │   ├── logger.py                # Loguru logging setup (main + per-account)
+│   │   ├── notifier.py              # Discord webhook notifications
 │   │   └── setup_wizard.py          # Interactive CLI setup wizard
 │   ├── web/                         # Flask web dashboard
 │   │   ├── __init__.py              # App factory (create_app)
@@ -826,26 +880,33 @@ bunnytweets/
 │   │   │   ├── dashboard.py         # GET / — main overview
 │   │   │   ├── settings.py          # GET/POST /settings — config editor
 │   │   │   ├── accounts.py          # CRUD /accounts — account management
+│   │   │   ├── generator.py         # /generator — title categories + global targets
+│   │   │   ├── analytics.py         # /analytics — visual charts dashboard
 │   │   │   ├── logs.py              # GET /logs — log viewer + tail API
 │   │   │   ├── actions.py           # POST /api/actions/* — engine control + manual triggers
-│   │   │   └── api.py               # GET /api/* — JSON status polling endpoints
+│   │   │   └── api.py               # GET /api/* — JSON status + analytics endpoints
 │   │   ├── templates/               # Jinja2 HTML templates (Bootstrap 5 dark theme)
 │   │   │   ├── base.html            # Layout: navbar, engine indicator, toasts
 │   │   │   ├── dashboard.html       # Account cards, engine controls, jobs table
 │   │   │   ├── settings.html        # Settings form (accordion sections)
 │   │   │   ├── accounts.html        # Account list with toggles
 │   │   │   ├── account_form.html    # Add/edit account form (dynamic rows)
+│   │   │   ├── generator.html       # Title categories and global targets
+│   │   │   ├── analytics.html       # Analytics charts (Chart.js)
 │   │   │   └── logs.html            # Log viewer (terminal-style)
 │   │   └── static/
 │   │       ├── css/style.css        # Custom dark theme styles
 │   │       └── js/
 │   │           ├── dashboard.js     # Status polling (5s), engine/trigger actions
-│   │           ├── logs.js          # Log tailing (2s), search highlighting
-│   │           └── accounts.js      # Toggle, delete, dynamic form rows
+│   │           ├── accounts.js      # Toggle, delete, dynamic form rows
+│   │           ├── generator.js     # Category/title/target CRUD
+│   │           ├── analytics.js     # Chart.js rendering + data fetching
+│   │           └── logs.js          # Log tailing (2s), search highlighting
 │   ├── gologin/
 │   │   └── api_client.py            # GoLogin Local REST API client (port 36912)
 │   ├── dolphin_anty/
 │   │   ├── api_client.py            # Dolphin Anty Local API client (port 3001)
+│   │   ├── chromedriver_resolver.py  # ChromeDriver version resolution
 │   │   └── profile_manager.py       # Provider-agnostic Selenium profile manager
 │   ├── google_drive/
 │   │   ├── drive_client.py          # Google Drive API client
@@ -854,7 +915,9 @@ bunnytweets/
 │   ├── twitter/
 │   │   ├── automation.py            # Low-level Selenium operations (type, click, navigate)
 │   │   ├── poster.py                # High-level posting orchestration (Drive -> Tweet)
-│   │   └── retweeter.py             # High-level retweet orchestration
+│   │   ├── retweeter.py             # High-level retweet orchestration
+│   │   ├── replier.py               # Auto-reply to tweets from target profiles
+│   │   └── human_simulator.py       # Human-like browsing simulation sessions
 │   └── scheduler/
 │       ├── job_manager.py           # APScheduler wrapper (cron + interval jobs)
 │       └── queue_handler.py         # Thread-safe task queue (1 task per account)

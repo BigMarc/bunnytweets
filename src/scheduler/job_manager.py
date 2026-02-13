@@ -4,21 +4,10 @@ from __future__ import annotations
 
 import random
 from datetime import datetime, timedelta
-from enum import Enum
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from loguru import logger
-
-
-class JobType(Enum):
-    POST_CONTENT = "post_content"
-    RETWEET_TARGET = "retweet_target"
-    DRIVE_SYNC = "drive_sync"
-    HEALTH_CHECK = "health_check"
-    HUMAN_SIMULATION = "human_simulation"
-    CTA_COMMENT = "cta_comment"
-    REPLY = "reply"
 
 
 class JobManager:

@@ -12,6 +12,8 @@ accounts:
       # GoLogin: find in GoLogin app or via API: GET https://api.gologin.com/browser/v2
       # Dolphin Anty: find via API: GET http://localhost:3001/v1.0/browser_profiles
       profile_id: "your_profile_id"
+      # For Dolphin Anty you can alternatively use dolphin_profile_id:
+      # dolphin_profile_id: "your_dolphin_profile_id"
 
     google_drive:
       # The Google Drive folder ID containing media for this account.
@@ -31,6 +33,9 @@ accounts:
         - time: "20:00"
       # Fallback text if no .txt file accompanies the media
       default_text: ""
+      # Title categories to pick random titles from (managed via Generator page)
+      # Always includes "Global" category automatically.
+      title_categories: ["Global"]
 
     retweeting:
       enabled: true
@@ -69,6 +74,26 @@ accounts:
           end: "12:00"
         - start: "18:00"
           end: "23:00"
+      # Optional: custom action probability weights (default weights used if omitted)
+      # action_weights:
+      #   scroll: 30
+      #   read_tweet: 25
+      #   like: 15
+      #   view_profile: 15
+      #   explore: 15
+
+    # Auto-reply to mentions / notifications
+    reply_to_replies:
+      enabled: false
+      # Maximum replies per day for this account
+      daily_limit: 10
+      # Time windows during which replies are allowed
+      time_windows:
+        - start: "09:00"
+          end: "12:00"
+        - start: "14:00"
+          end: "17:00"
+      # Reply templates are managed via the web dashboard (Account > Edit)
 
   # --- Account 2 ---
   - name: "SecondAccount"
@@ -89,6 +114,7 @@ accounts:
         - time: "10:00"
         - time: "18:00"
       default_text: ""
+      title_categories: ["Global"]
 
     retweeting:
       enabled: true
@@ -114,3 +140,12 @@ accounts:
           end: "14:00"
         - start: "19:00"
           end: "22:00"
+
+    reply_to_replies:
+      enabled: false
+      daily_limit: 10
+      time_windows:
+        - start: "10:00"
+          end: "13:00"
+        - start: "16:00"
+          end: "19:00"

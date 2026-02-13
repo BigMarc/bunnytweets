@@ -4,6 +4,7 @@
 Usage:
     python main.py              Start the automation (all enabled accounts)
     python main.py --web        Launch the web dashboard (http://localhost:8080)
+    python main.py --desktop    Launch desktop app (dashboard + system tray)
     python main.py --setup      Interactive first-time setup wizard
     python main.py --add-account  Add a new Twitter account interactively
     python main.py --status     Show account status dashboard
@@ -48,6 +49,7 @@ class Application:
         setup_logging(
             level=log_cfg.get("level", "INFO"),
             retention_days=log_cfg.get("retention_days", 30),
+            per_account_logs=log_cfg.get("per_account_logs", True),
             log_dir=str(self.config.resolve_path("data/logs")),
         )
 
@@ -345,7 +347,10 @@ class Application:
     # Shutdown
     # ------------------------------------------------------------------
     def shutdown(self) -> None:
+        if getattr(self, '_shutdown_complete', False):
+            return
         self._shutdown = True
+        self._shutdown_complete = True
         logger.info("Shutting down...")
         self.job_manager.shutdown()
         self.queue.stop()

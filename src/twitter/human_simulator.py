@@ -52,7 +52,10 @@ class HumanSimulator:
         """
         sim_cfg = self.config.get("human_simulation", {})
         if not sim_cfg.get("enabled", False):
-            logger.debug(f"[{self.account_name}] Human simulation disabled")
+            logger.info(
+                f"[{self.account_name}] Human simulation is not enabled for this account — "
+                "enable it in account settings under 'Human Simulation'"
+            )
             return {}
 
         # Session duration (minutes)

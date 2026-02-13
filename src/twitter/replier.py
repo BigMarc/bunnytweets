@@ -31,13 +31,14 @@ class TwitterReplier:
         """Check notifications for mentions and reply. Returns True if a reply was made."""
         reply_cfg = self.config.get("reply_to_replies", {})
         if not reply_cfg.get("enabled", False):
+            logger.info(f"[{self.account_name}] Auto-reply is not enabled — skipping")
             return False
 
         daily_limit = reply_cfg.get("daily_limit", 10)
         current_count = self.db.get_replies_today(self.account_name)
 
         if current_count >= daily_limit:
-            logger.debug(
+            logger.info(
                 f"[{self.account_name}] Daily reply limit reached "
                 f"({current_count}/{daily_limit})"
             )

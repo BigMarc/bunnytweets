@@ -31,13 +31,14 @@ class TwitterRetweeter:
         """Perform one retweet if quota allows. Returns True if a retweet was made."""
         rt_cfg = self.config.get("retweeting", {})
         if not rt_cfg.get("enabled", False):
+            logger.info(f"[{self.account_name}] Retweeting is not enabled — skipping")
             return False
 
         daily_limit = rt_cfg.get("daily_limit", 3)
         current_count = self.db.get_retweets_today(self.account_name)
 
         if current_count >= daily_limit:
-            logger.debug(
+            logger.info(
                 f"[{self.account_name}] Daily retweet limit reached ({current_count}/{daily_limit})"
             )
             return False

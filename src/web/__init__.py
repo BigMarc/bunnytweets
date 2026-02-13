@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import secrets
+
 from flask import Flask
 
 from src.web.state import AppState
@@ -19,7 +22,7 @@ def create_app(config, db) -> Flask:
         template_folder="templates",
         static_folder="static",
     )
-    app.secret_key = "bunnytweets-dashboard-key"
+    app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
 
     # Initialize shared state
     state = AppState(config=config, db=db)
