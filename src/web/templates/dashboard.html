@@ -123,7 +123,9 @@
                         </span>
                     </div>
                     <div class="col-6">
-                        <small class="text-muted">Last Retweet</small><br>
+                        <small class="text-muted">
+                            {% if acct.platform == 'threads' %}Last Repost{% else %}Last Retweet{% endif %}
+                        </small><br>
                         <span class="last-rt-{{ acct.name }}">
                             {{ acct.last_retweet.strftime('%m/%d %H:%M') if acct.last_retweet else 'Never' }}
                         </span>
@@ -131,7 +133,9 @@
                 </div>
 
                 <div class="mb-2">
-                    <small class="text-muted">Retweets Today</small>
+                    <small class="text-muted">
+                        {% if acct.platform == 'threads' %}Reposts Today{% else %}Retweets Today{% endif %}
+                    </small>
                     <div class="d-flex align-items-center">
                         <div class="progress flex-grow-1 me-2" style="height: 8px;">
                             {% set pct = (acct.retweets_today / acct.retweet_limit * 100) if acct.retweet_limit > 0 else 0 %}
@@ -166,7 +170,7 @@
                 <button class="btn btn-sm btn-outline-info me-1"
                         onclick="triggerRetweet('{{ acct.name }}')"
                         {% if not engine_running or not acct.retweeting_enabled %}disabled{% endif %}>
-                    <i class="bi bi-repeat me-1"></i>Retweet Now
+                    <i class="bi bi-repeat me-1"></i>{% if acct.platform == 'threads' %}Repost Now{% else %}Retweet Now{% endif %}
                 </button>
                 <button class="btn btn-sm btn-outline-secondary"
                         onclick="triggerSimulation('{{ acct.name }}')"

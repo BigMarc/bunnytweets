@@ -68,11 +68,20 @@
                         {% endif %}
                     </td>
                     <td>
-                        {% if acct.get('retweeting', {}).get('enabled') %}
-                            <span class="badge bg-info">On</span>
-                            <small class="text-muted">({{ acct.get('retweeting', {}).get('daily_limit', 3) }}/day)</small>
+                        {% if platform == 'threads' %}
+                            {% if acct.get('reposting', {}).get('enabled') %}
+                                <span class="badge bg-info">On</span>
+                                <small class="text-muted">({{ acct.get('reposting', {}).get('max_per_day', 5) }}/day)</small>
+                            {% else %}
+                                <span class="badge bg-secondary">Off</span>
+                            {% endif %}
                         {% else %}
-                            <span class="badge bg-secondary">Off</span>
+                            {% if acct.get('retweeting', {}).get('enabled') %}
+                                <span class="badge bg-info">On</span>
+                                <small class="text-muted">({{ acct.get('retweeting', {}).get('daily_limit', 3) }}/day)</small>
+                            {% else %}
+                                <span class="badge bg-secondary">Off</span>
+                            {% endif %}
                         {% endif %}
                     </td>
                     <td class="text-end">
