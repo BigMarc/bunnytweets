@@ -167,16 +167,51 @@ class TwitterAutomation:
                     # Wait for upload to process
                     time.sleep(3)
 
-            # Wait for the tweet button to become active
+            # Wait for media to finish uploading (thumbnail visible, no progress bar)
+            if media_files:
+                try:
+                    WebDriverWait(self.driver, 30).until(
+                        EC.presence_of_element_located(
+                            (By.CSS_SELECTOR, 'div[data-testid="attachments"]')
+                        )
+                    )
+                    logger.debug("Media attachment detected")
+                except TimeoutException:
+                    logger.debug("No attachment container found — continuing anyway")
+                # Extra settle time for large uploads
+                time.sleep(2)
+
             self._action_delay()
 
-            # Click tweet/post button
-            tweet_btn = WebDriverWait(self.driver, 15).until(
-                EC.element_to_be_clickable(
-                    (By.CSS_SELECTOR, 'button[data-testid="tweetButton"]')
-                )
-            )
-            tweet_btn.click()
+            # Click tweet/post button — try multiple selectors
+            tweet_btn = None
+            post_selectors = [
+                'button[data-testid="tweetButton"]',
+                'button[data-testid="tweetButtonInline"]',
+                'div[data-testid="tweetButton"]',
+                'div[data-testid="tweetButtonInline"]',
+            ]
+            for sel in post_selectors:
+                try:
+                    tweet_btn = WebDriverWait(self.driver, 5).until(
+                        EC.element_to_be_clickable((By.CSS_SELECTOR, sel))
+                    )
+                    logger.debug(f"Found post button via: {sel}")
+                    break
+                except TimeoutException:
+                    continue
+
+            if tweet_btn is None:
+                logger.error("Could not find any post/tweet button")
+                return False
+
+            # Try regular click first, fall back to JS click
+            try:
+                tweet_btn.click()
+            except ElementClickInterceptedException:
+                logger.debug("Regular click intercepted — using JS click")
+                self.driver.execute_script("arguments[0].click();", tweet_btn)
+
             logger.info("Tweet posted successfully")
             self._page_delay()
             return True
