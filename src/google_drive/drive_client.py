@@ -49,20 +49,38 @@ class DriveClient:
         order_by: str = "createdTime desc",
         page_size: int = 100,
     ) -> list[dict[str, Any]]:
-        """List files in a Google Drive folder, optionally filtered by extension."""
+        """List files in a Google Drive folder, optionally filtered by extension.
+
+        Supports both personal Drive and Shared Drives via
+        ``supportsAllDrives`` / ``includeItemsFromAllDrives``.
+        Paginates automatically so folders with >100 files are fully returned.
+        """
         query = f"'{folder_id}' in parents and trashed = false"
 
-        results = (
-            self.service.files()
-            .list(
+        files: list[dict[str, Any]] = []
+        page_token: str | None = None
+
+        while True:
+            request_kwargs: dict[str, Any] = dict(
                 q=query,
                 pageSize=page_size,
                 orderBy=order_by,
-                fields="files(id, name, mimeType, createdTime, modifiedTime, size)",
+                fields="nextPageToken, files(id, name, mimeType, createdTime, modifiedTime, size)",
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
             )
-            .execute()
-        )
-        files = results.get("files", [])
+            if page_token:
+                request_kwargs["pageToken"] = page_token
+
+            results = (
+                self.service.files()
+                .list(**request_kwargs)
+                .execute()
+            )
+            files.extend(results.get("files", []))
+            page_token = results.get("nextPageToken")
+            if not page_token:
+                break
 
         if file_types:
             allowed = {ft.lower().lstrip(".") for ft in file_types}
@@ -77,7 +95,9 @@ class DriveClient:
     def download_file(self, file_id: str, destination: Path) -> Path:
         """Download a file from Google Drive to a local path."""
         destination.parent.mkdir(parents=True, exist_ok=True)
-        request = self.service.files().get_media(fileId=file_id)
+        request = self.service.files().get_media(
+            fileId=file_id, supportsAllDrives=True
+        )
         with open(destination, "wb") as fh:
             downloader = MediaIoBaseDownload(fh, request)
             done = False
@@ -93,6 +113,10 @@ class DriveClient:
     def get_file_metadata(self, file_id: str) -> dict:
         return (
             self.service.files()
-            .get(fileId=file_id, fields="id, name, mimeType, createdTime, modifiedTime, size")
+            .get(
+                fileId=file_id,
+                fields="id, name, mimeType, createdTime, modifiedTime, size",
+                supportsAllDrives=True,
+            )
             .execute()
         )
