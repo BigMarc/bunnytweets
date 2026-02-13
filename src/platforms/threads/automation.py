@@ -36,6 +36,11 @@ from src.platforms.base import PlatformAutomation
 
 THREADS_BASE = "https://www.threads.net"
 
+# Timeouts (seconds) for waiting on media upload processing
+_UPLOAD_TIMEOUT_IMAGE = 30
+_UPLOAD_TIMEOUT_VIDEO = 180  # videos can take 1-3 minutes
+_VIDEO_EXTENSIONS = {".mp4", ".mov", ".webm"}
+
 # ---------------------------------------------------------------------------
 # Selector fallback chains — update HERE when Threads changes its UI.
 # Each entry is (By strategy, selector value).
@@ -288,13 +293,17 @@ class ThreadsAutomation(PlatformAutomation):
                     file_input = _find_with_fallback(
                         self.driver, "media_input", timeout=8
                     )
+                    has_video = any(
+                        mf.suffix.lower() in _VIDEO_EXTENSIONS for mf in media_files
+                    )
+                    upload_timeout = _UPLOAD_TIMEOUT_VIDEO if has_video else _UPLOAD_TIMEOUT_IMAGE
                     for mf in media_files:
                         abs_path = str(mf.resolve())
                         logger.debug(f"Uploading media: {abs_path}")
                         file_input.send_keys(abs_path)
                         self._action_delay()
-                        # Wait for upload preview to appear
-                        time.sleep(3)
+                        # Wait for upload to process
+                        time.sleep(3 if not has_video else 5)
                 except NoSuchElementException:
                     logger.warning("Could not find media upload input — posting without media")
 

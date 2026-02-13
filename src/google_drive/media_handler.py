@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import io
+import shutil
+import subprocess
 from pathlib import Path
 
 from loguru import logger
@@ -137,6 +139,54 @@ class MediaHandler:
         if out_path != path:
             path.unlink(missing_ok=True)
 
+        return out_path
+
+    @staticmethod
+    def convert_mov_to_mp4(path: Path, timeout: int = 300) -> Path:
+        """Convert a .mov file to .mp4 using ffmpeg.
+
+        Returns the new .mp4 path on success, or the original path if
+        the file is not a .mov or ffmpeg is unavailable.
+        """
+        if path.suffix.lower() != ".mov":
+            return path
+
+        if not shutil.which("ffmpeg"):
+            logger.warning("ffmpeg not found on PATH — skipping .mov conversion")
+            return path
+
+        out_path = path.with_suffix(".mp4")
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(path),
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "23",
+            "-c:a", "aac",
+            "-movflags", "+faststart",
+            str(out_path),
+        ]
+        logger.info(f"Converting {path.name} -> {out_path.name} via ffmpeg")
+        try:
+            subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=timeout,
+                check=True,
+            )
+        except subprocess.TimeoutExpired:
+            logger.error(f"ffmpeg conversion timed out after {timeout}s for {path.name}")
+            out_path.unlink(missing_ok=True)
+            return path
+        except subprocess.CalledProcessError as exc:
+            logger.error(f"ffmpeg conversion failed for {path.name}: {exc.stderr.decode()[:500]}")
+            out_path.unlink(missing_ok=True)
+            return path
+
+        final_mb = out_path.stat().st_size / (1024 * 1024)
+        logger.info(f"Converted {path.name} -> {out_path.name} ({final_mb:.1f} MB)")
+        path.unlink(missing_ok=True)
         return out_path
 
     @staticmethod

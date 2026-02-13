@@ -93,11 +93,16 @@ class DriveClient:
         return files
 
     def download_file(
-        self, file_id: str, destination: Path, max_retries: int = 3
+        self, file_id: str, destination: Path, max_retries: int = 3,
+        timeout: float = 300,
     ) -> Path:
         """Download a file from Google Drive to a local path.
 
+        Args:
+            timeout: Maximum total seconds for the download (default 300 = 5 min).
+
         Retries with exponential back-off on transient network / SSL errors.
+        Raises TimeoutError if the download exceeds *timeout* seconds.
         """
         destination.parent.mkdir(parents=True, exist_ok=True)
 
@@ -106,10 +111,17 @@ class DriveClient:
                 request = self.service.files().get_media(
                     fileId=file_id, supportsAllDrives=True
                 )
+                start = time.monotonic()
                 with open(destination, "wb") as fh:
                     downloader = MediaIoBaseDownload(fh, request)
                     done = False
                     while not done:
+                        elapsed = time.monotonic() - start
+                        if elapsed > timeout:
+                            raise TimeoutError(
+                                f"Download of {file_id} timed out after {elapsed:.0f}s "
+                                f"(limit {timeout}s)"
+                            )
                         status, done = downloader.next_chunk()
                         if status:
                             logger.debug(
@@ -117,6 +129,8 @@ class DriveClient:
                             )
                 logger.info(f"Downloaded {file_id} -> {destination}")
                 return destination
+            except TimeoutError:
+                raise
             except Exception as exc:
                 if attempt < max_retries:
                     delay = 2 ** attempt

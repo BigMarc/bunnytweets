@@ -5,6 +5,7 @@ from __future__ import annotations
 import random
 import time
 from pathlib import Path
+from typing import Sequence
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -20,6 +21,11 @@ from loguru import logger
 
 
 TWITTER_BASE = "https://x.com"
+
+# Timeouts (seconds) for waiting on media upload processing
+_UPLOAD_TIMEOUT_IMAGE = 30
+_UPLOAD_TIMEOUT_VIDEO = 180  # videos can take 1-3 minutes
+_VIDEO_EXTENSIONS = {".mp4", ".mov", ".webm"}
 
 
 class TwitterAutomation:
@@ -187,17 +193,24 @@ class TwitterAutomation:
 
             # Wait for media to finish uploading (thumbnail visible, no progress bar)
             if media_files:
+                has_video = any(
+                    mf.suffix.lower() in _VIDEO_EXTENSIONS for mf in media_files
+                )
+                upload_timeout = _UPLOAD_TIMEOUT_VIDEO if has_video else _UPLOAD_TIMEOUT_IMAGE
                 try:
-                    WebDriverWait(self.driver, 30).until(
+                    WebDriverWait(self.driver, upload_timeout).until(
                         EC.presence_of_element_located(
                             (By.CSS_SELECTOR, 'div[data-testid="attachments"]')
                         )
                     )
                     logger.debug("Media attachment detected")
                 except TimeoutException:
-                    logger.debug("No attachment container found — continuing anyway")
+                    logger.error(
+                        f"Media upload timed out after {upload_timeout}s — aborting post"
+                    )
+                    return False
                 # Extra settle time for large uploads
-                time.sleep(2)
+                time.sleep(2 if not has_video else 5)
 
             self._action_delay()
 

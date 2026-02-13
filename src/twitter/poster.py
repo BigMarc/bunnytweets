@@ -117,6 +117,10 @@ class TwitterPoster:
             )
             return False
 
+        # Convert .mov to .mp4 for Twitter compatibility
+        if local_path.suffix.lower() == ".mov":
+            local_path = self.media_handler.convert_mov_to_mp4(local_path)
+
         # Auto-compress oversized images
         if local_path.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp"):
             local_path = self.media_handler.compress_image(local_path)
