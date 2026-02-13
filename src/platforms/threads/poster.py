@@ -101,6 +101,10 @@ class ThreadsPoster:
             )
             return False
 
+        # Auto-compress oversized images
+        if local_path.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp"):
+            local_path = self.media_handler.compress_image(local_path)
+
         if not self.media_handler.validate_file(local_path):
             logger.warning(
                 f"[{self.account_name}] Invalid media file: {local_path.name}"
