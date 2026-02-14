@@ -81,7 +81,7 @@ def add_save():
     platform = acct.get("platform", "twitter")
     username = acct.get(platform, {}).get("username", "")
     if username:
-        state.db.add_global_target(username)
+        state.db.add_global_target(username, content_rating=acct.get("content_rating", "sfw"))
 
     flash(f"Account '{acct['name']}' added!", "success")
     return redirect(url_for("accounts.index"))
@@ -172,17 +172,23 @@ def add_cta(name):
     if not text:
         return jsonify({"success": False, "message": "CTA text is required"})
 
-    cta = state.db.add_cta_text(name, text)
-    return jsonify({"success": True, "id": cta.id, "message": "CTA text added"})
+    try:
+        cta = state.db.add_cta_text(name, text)
+        return jsonify({"success": True, "id": cta.id, "message": "CTA text added"})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Database error: {e}"}), 500
 
 
 @bp.route("/<name>/cta/<int:cta_id>/delete", methods=["POST"])
 def delete_cta(name, cta_id):
     state = current_app.config["APP_STATE"]
-    ok = state.db.delete_cta_text(cta_id)
-    if ok:
-        return jsonify({"success": True, "message": "CTA text deleted"})
-    return jsonify({"success": False, "message": "CTA text not found"})
+    try:
+        ok = state.db.delete_cta_text(cta_id)
+        if ok:
+            return jsonify({"success": True, "message": "CTA text deleted"})
+        return jsonify({"success": False, "message": "CTA text not found"})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Database error: {e}"}), 500
 
 
 @bp.route("/<name>/reply-template/add", methods=["POST"])
@@ -193,17 +199,23 @@ def add_reply_template(name):
     if not text:
         return jsonify({"success": False, "message": "Template text is required"})
 
-    tpl = state.db.add_reply_template(name, text)
-    return jsonify({"success": True, "id": tpl.id, "message": "Reply template added"})
+    try:
+        tpl = state.db.add_reply_template(name, text)
+        return jsonify({"success": True, "id": tpl.id, "message": "Reply template added"})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Database error: {e}"}), 500
 
 
 @bp.route("/<name>/reply-template/<int:tpl_id>/delete", methods=["POST"])
 def delete_reply_template(name, tpl_id):
     state = current_app.config["APP_STATE"]
-    ok = state.db.delete_reply_template(tpl_id)
-    if ok:
-        return jsonify({"success": True, "message": "Reply template deleted"})
-    return jsonify({"success": False, "message": "Reply template not found"})
+    try:
+        ok = state.db.delete_reply_template(tpl_id)
+        if ok:
+            return jsonify({"success": True, "message": "Reply template deleted"})
+        return jsonify({"success": False, "message": "Reply template not found"})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Database error: {e}"}), 500
 
 
 def _find_account(state, name):
@@ -226,9 +238,14 @@ def _parse_account_form(form):
     username = form.get("platform_username", "").strip()
     profile_id = form.get("platform_profile_id", "").strip()
 
+    content_rating = form.get("content_rating", "sfw").strip()
+    if content_rating not in ("sfw", "nsfw"):
+        content_rating = "sfw"
+
     acct = {
         "name": form.get("name", "").strip(),
         "platform": platform,
+        "content_rating": content_rating,
         "enabled": "enabled" in form,
         platform: {
             "username": username,

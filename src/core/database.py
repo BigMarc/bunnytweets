@@ -129,11 +129,16 @@ class ReplyTemplate(Base):
 
 
 class GlobalTarget(Base):
-    """Global retweet pool — every account retweets posts from these usernames."""
+    """Global retweet pool — accounts retweet posts from matching targets.
+
+    ``content_rating`` ("sfw" or "nsfw") controls visibility: an SFW account
+    only sees SFW targets; an NSFW account only sees NSFW targets.
+    """
     __tablename__ = "global_targets"
 
     id = Column(Integer, primary_key=True)
     username = Column(String, unique=True, nullable=False)
+    content_rating = Column(String, default="sfw")   # "sfw" | "nsfw"
     added_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -173,6 +178,9 @@ class Database:
             },
             "processed_files": {
                 "use_count": "INTEGER DEFAULT 0",
+            },
+            "global_targets": {
+                "content_rating": "VARCHAR DEFAULT 'sfw'",
             },
         }
         with self.engine.connect() as conn:
@@ -644,21 +652,28 @@ class Database:
         with self.session() as s:
             return s.query(GlobalTarget).order_by(GlobalTarget.added_at.desc()).all()
 
-    def get_global_target_usernames(self) -> list[str]:
-        """Return just the username strings."""
-        return [t.username for t in self.get_global_targets()]
+    def get_global_target_usernames(self, content_rating: str | None = None) -> list[str]:
+        """Return usernames, optionally filtered by content_rating ("sfw"/"nsfw")."""
+        with self.session() as s:
+            q = s.query(GlobalTarget)
+            if content_rating:
+                q = q.filter_by(content_rating=content_rating)
+            return [t.username for t in q.all()]
 
-    def add_global_target(self, username: str) -> GlobalTarget | None:
+    def add_global_target(
+        self, username: str, content_rating: str = "sfw",
+    ) -> GlobalTarget | None:
         """Add a username to the global pool. Returns None if it already exists."""
         clean = username.strip().lstrip("@")
         if not clean:
             return None
         handle = f"@{clean}"
+        rating = content_rating if content_rating in ("sfw", "nsfw") else "sfw"
         with self.session() as s:
             existing = s.query(GlobalTarget).filter_by(username=handle).first()
             if existing:
                 return existing
-            target = GlobalTarget(username=handle)
+            target = GlobalTarget(username=handle, content_rating=rating)
             s.add(target)
             s.commit()
             s.refresh(target)
@@ -681,6 +696,18 @@ class Database:
                 else:
                     target.username = new_handle
                 s.commit()
+
+    def update_global_target_rating(self, target_id: int, content_rating: str) -> bool:
+        """Update the content_rating of a global target."""
+        if content_rating not in ("sfw", "nsfw"):
+            return False
+        with self.session() as s:
+            target = s.query(GlobalTarget).get(target_id)
+            if not target:
+                return False
+            target.content_rating = content_rating
+            s.commit()
+            return True
 
     def delete_global_target(self, target_id: int) -> bool:
         with self.session() as s:
