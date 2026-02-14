@@ -63,11 +63,13 @@ class TwitterRetweeter:
         # Merge global targets (shared retweet pool) with per-account targets.
         # Global targets get a default priority of 50 so per-account targets
         # (usually priority 1-10) are checked first.
+        # Only include targets matching the account's content_rating (sfw/nsfw).
         own_username = self.config.get("twitter", {}).get("username", "")
         own_handle = f"@{own_username.lstrip('@')}" if own_username else ""
         existing_usernames = {t.get("username", "").lower() for t in targets}
 
-        global_usernames = self.db.get_global_target_usernames()
+        account_rating = self.config.get("content_rating", "sfw")
+        global_usernames = self.db.get_global_target_usernames(content_rating=account_rating)
         for g_user in global_usernames:
             # Don't retweet yourself
             if own_handle and g_user.lower() == own_handle.lower():

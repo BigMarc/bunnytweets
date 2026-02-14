@@ -6,6 +6,7 @@ accounts:
   # --- Twitter Account ---
   - name: "MyMainAccount"
     platform: "twitter"      # "twitter" or "threads"
+    content_rating: "sfw"    # "sfw" or "nsfw" — controls which global targets are used
     enabled: true
 
     twitter:

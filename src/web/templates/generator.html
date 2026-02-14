@@ -78,7 +78,8 @@
             </div>
             <div class="card-body">
                 <p class="form-text mt-0 mb-3">
-                    Shared retweet pool &mdash; every account in the system will retweet posts from these profiles.
+                    Shared retweet pool &mdash; accounts retweet from targets matching their content rating.
+                    SFW accounts only see SFW targets; NSFW accounts only see NSFW targets.
                     New accounts are added here automatically when created.
                 </p>
 
@@ -88,6 +89,11 @@
                         <div class="d-inline-flex align-items-center me-2 mb-2 gt-item" data-gt-id="{{ t.id }}">
                             <span class="badge bg-dark border border-secondary d-flex align-items-center py-2 px-3" style="font-size: 0.9rem;">
                                 {{ t.username }}
+                                {% set rating = t.content_rating or 'sfw' %}
+                                <span class="badge ms-2 {{ 'bg-success' if rating == 'sfw' else 'bg-danger' }} gt-rating"
+                                      style="cursor:pointer; font-size: 0.7rem;"
+                                      onclick="toggleRating({{ t.id }}, '{{ rating }}', this)"
+                                      title="Click to toggle SFW/NSFW">{{ rating|upper }}</span>
                                 <button type="button" class="btn-close btn-close-white ms-2" style="font-size: 0.6rem;"
                                         onclick="deleteGlobalTarget({{ t.id }}, this)"></button>
                             </span>
@@ -98,9 +104,13 @@
                     {% endif %}
                 </div>
 
-                <div class="input-group" style="max-width: 400px;">
+                <div class="input-group" style="max-width: 500px;">
                     <input type="text" class="form-control form-control-sm" id="new-gt-username"
                            placeholder="@username" onkeydown="if(event.key==='Enter'){event.preventDefault();addGlobalTarget();}">
+                    <select class="form-select form-select-sm" id="new-gt-rating" style="max-width: 100px;">
+                        <option value="sfw">SFW</option>
+                        <option value="nsfw">NSFW</option>
+                    </select>
                     <button type="button" class="btn btn-sm btn-outline-primary" onclick="addGlobalTarget()">
                         <i class="bi bi-plus me-1"></i>Add Target
                     </button>

@@ -63,13 +63,15 @@ class ThreadsReposter:
         rt_cfg = self.config.get("reposting", {})
         targets = list(rt_cfg.get("targets", []))
 
-        # Merge global targets
+        # Merge global targets — only include targets matching this account's
+        # content_rating so SFW accounts never repost NSFW content.
         own_username = self.config.get("threads", {}).get("username", "")
         own_handle = f"@{own_username.lstrip('@')}" if own_username else ""
         existing = {t.lower() if isinstance(t, str) else t.get("username", "").lower()
                     for t in targets}
 
-        global_usernames = self.db.get_global_target_usernames()
+        account_rating = self.config.get("content_rating", "sfw")
+        global_usernames = self.db.get_global_target_usernames(content_rating=account_rating)
         for g_user in global_usernames:
             if own_handle and g_user.lower() == own_handle.lower():
                 continue

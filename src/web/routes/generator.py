@@ -26,7 +26,10 @@ def index():
 
     # Global target accounts (shared retweet pool)
     global_targets = state.db.get_global_targets()
-    gt_data = [{"id": t.id, "username": t.username} for t in global_targets]
+    gt_data = [
+        {"id": t.id, "username": t.username, "content_rating": t.content_rating or "sfw"}
+        for t in global_targets
+    ]
 
     return render_template("generator.html", categories=cat_data, global_targets=gt_data)
 
@@ -113,13 +116,33 @@ def add_global_target():
     state = current_app.config["APP_STATE"]
     data = request.get_json(silent=True) or {}
     username = data.get("username", "").strip()
+    content_rating = data.get("content_rating", "sfw").strip()
     if not username:
         return jsonify({"success": False, "message": "Username is required"})
 
-    target = state.db.add_global_target(username)
+    target = state.db.add_global_target(username, content_rating=content_rating)
     if target:
-        return jsonify({"success": True, "id": target.id, "username": target.username})
+        return jsonify({
+            "success": True,
+            "id": target.id,
+            "username": target.username,
+            "content_rating": target.content_rating or "sfw",
+        })
     return jsonify({"success": False, "message": "Failed to add target"})
+
+
+@bp.route("/global-target/<int:target_id>/rating", methods=["POST"])
+def update_target_rating(target_id):
+    state = current_app.config["APP_STATE"]
+    data = request.get_json(silent=True) or {}
+    rating = data.get("content_rating", "").strip()
+    if rating not in ("sfw", "nsfw"):
+        return jsonify({"success": False, "message": "Rating must be 'sfw' or 'nsfw'"})
+
+    ok = state.db.update_global_target_rating(target_id, rating)
+    if ok:
+        return jsonify({"success": True, "content_rating": rating})
+    return jsonify({"success": False, "message": "Target not found"})
 
 
 @bp.route("/global-target/<int:target_id>/delete", methods=["POST"])
