@@ -53,7 +53,7 @@ def test_failed_task(queue):
     def bad():
         raise ValueError("boom")
 
-    task = Task(account_name="acct1", task_type="fail", callback=bad)
+    task = Task(account_name="acct1", task_type="fail", callback=bad, max_retries=1)
     queue.submit(task)
     time.sleep(2)
     assert task.status == TaskStatus.FAILED
