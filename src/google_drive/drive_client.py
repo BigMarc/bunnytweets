@@ -43,25 +43,53 @@ class DriveClient:
         )
         self.service = build("drive", "v3", credentials=creds, cache_discovery=False)
 
-    def list_files(
-        self,
-        folder_id: str,
-        file_types: list[str] | None = None,
-        page_size: int = 100,
+    def _list_subfolder_ids(self, folder_id: str, page_size: int = 100) -> list[str]:
+        """Recursively discover all subfolder IDs under *folder_id*."""
+        query = (
+            f"'{folder_id}' in parents and trashed = false "
+            f"and mimeType = 'application/vnd.google-apps.folder'"
+        )
+        subfolder_ids: list[str] = []
+        page_token: str | None = None
+
+        while True:
+            kwargs: dict[str, Any] = dict(
+                q=query,
+                pageSize=page_size,
+                fields="nextPageToken, files(id, name)",
+                corpora="allDrives",
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            )
+            if page_token:
+                kwargs["pageToken"] = page_token
+
+            results = self.service.files().list(**kwargs).execute()
+            for f in results.get("files", []):
+                subfolder_ids.append(f["id"])
+                logger.debug(f"Discovered subfolder: {f['name']} ({f['id']})")
+                # Recurse into this subfolder
+                subfolder_ids.extend(self._list_subfolder_ids(f["id"], page_size))
+
+            page_token = results.get("nextPageToken")
+            if not page_token:
+                break
+
+        return subfolder_ids
+
+    def _list_files_in_single_folder(
+        self, folder_id: str, page_size: int = 100,
     ) -> list[dict[str, Any]]:
-        """List files in a Google Drive folder, optionally filtered by extension.
-
-        Supports both personal Drive and Shared Drives via
-        ``corpora="allDrives"`` + ``supportsAllDrives`` / ``includeItemsFromAllDrives``.
-        Paginates automatically so folders with >100 files are fully returned.
-        """
-        query = f"'{folder_id}' in parents and trashed = false"
-
+        """List non-folder files that are direct children of *folder_id*."""
+        query = (
+            f"'{folder_id}' in parents and trashed = false "
+            f"and mimeType != 'application/vnd.google-apps.folder'"
+        )
         files: list[dict[str, Any]] = []
         page_token: str | None = None
 
         while True:
-            request_kwargs: dict[str, Any] = dict(
+            kwargs: dict[str, Any] = dict(
                 q=query,
                 pageSize=page_size,
                 fields="nextPageToken, files(id, name, mimeType, createdTime, modifiedTime, size)",
@@ -70,17 +98,40 @@ class DriveClient:
                 includeItemsFromAllDrives=True,
             )
             if page_token:
-                request_kwargs["pageToken"] = page_token
+                kwargs["pageToken"] = page_token
 
-            results = (
-                self.service.files()
-                .list(**request_kwargs)
-                .execute()
-            )
+            results = self.service.files().list(**kwargs).execute()
             files.extend(results.get("files", []))
             page_token = results.get("nextPageToken")
             if not page_token:
                 break
+
+        return files
+
+    def list_files(
+        self,
+        folder_id: str,
+        file_types: list[str] | None = None,
+        page_size: int = 100,
+    ) -> list[dict[str, Any]]:
+        """List files in a Google Drive folder **and all subfolders**, optionally filtered by extension.
+
+        Supports both personal Drive and Shared Drives via
+        ``corpora="allDrives"`` + ``supportsAllDrives`` / ``includeItemsFromAllDrives``.
+        Paginates automatically so folders with >100 files are fully returned.
+        Recursively scans subfolders so the content pool never runs dry.
+        """
+        # Collect all folder IDs: the root + every nested subfolder
+        all_folder_ids = [folder_id] + self._list_subfolder_ids(folder_id, page_size)
+        if len(all_folder_ids) > 1:
+            logger.info(
+                f"Drive scan: found {len(all_folder_ids)} folder(s) "
+                f"(1 root + {len(all_folder_ids) - 1} subfolder(s))"
+            )
+
+        files: list[dict[str, Any]] = []
+        for fid in all_folder_ids:
+            files.extend(self._list_files_in_single_folder(fid, page_size))
 
         if file_types:
             allowed = {ft.lower().lstrip(".") for ft in file_types}
