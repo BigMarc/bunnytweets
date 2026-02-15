@@ -232,9 +232,13 @@ accounts:
       username: "my_redgifs_username"
       profile_id: "gologin_or_dolphin_profile_id"
       # Default tags applied to every upload (discovery keywords)
+      # RedGifs requires 3-10 tags; tags are selected by clicking buttons on the upload page
       default_tags: ["blonde", "petite", "amateur"]
       # Whether to enable sound on uploaded videos (default: true)
       sound_on: true
+      # Audience preference for uploads (shown in step 3 of the upload wizard)
+      # Options: "straight", "gay", "lesbian", "trans", "bisexual", "animated"
+      audience_preference: "straight"
 
     google_drive:
       folder_id: "1ABCdefGHIjklMNOpqrSTUvwx"

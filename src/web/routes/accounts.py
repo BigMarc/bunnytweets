@@ -260,6 +260,10 @@ def _parse_account_form(form):
             tags = [t.strip() for t in tags_raw.split(",") if t.strip()]
             acct["redgifs"]["default_tags"] = tags
         acct["redgifs"]["sound_on"] = "redgifs.sound_on" in form
+        audience = form.get("redgifs.audience_preference", "straight").strip()
+        if audience not in ("straight", "gay", "lesbian", "trans", "bisexual", "animated"):
+            audience = "straight"
+        acct["redgifs"]["audience_preference"] = audience
 
     # Google Drive
     folder_id = form.get("google_drive.folder_id", "").strip()

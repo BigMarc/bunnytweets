@@ -121,18 +121,22 @@ class RedGifsPoster:
 
         tags = self._get_tags()
         title = self._pick_title()
-        sound_on = self.config.get("redgifs", {}).get("sound_on", True)
+        redgifs_cfg = self.config.get("redgifs", {})
+        sound_on = redgifs_cfg.get("sound_on", True)
+        audience_preference = redgifs_cfg.get("audience_preference", "straight")
 
         logger.info(
             f"[{self.account_name}] Uploading to RedGifs: '{chosen_meta['name']}'"
             + (f" + {len(tags)} tag(s)" if tags else " (no tags)")
             + (f" + title ({len(title)} chars)" if title else "")
+            + f" | audience={audience_preference}"
         )
         result_url = self.auto.upload_content(
             media_file=local_path,
             tags=tags,
             title=title,
             sound_on=sound_on,
+            audience_preference=audience_preference,
         )
 
         success = result_url is not None

@@ -4,17 +4,15 @@ RedGifs is an upload-only platform for video/image content. Sessions are
 pre-authenticated via the anti-detect browser profile — this module does
 NOT handle login.
 
-Selector strategy (in priority order):
-  1. id attributes (stable)
-  2. data-testid / aria-label attributes
-  3. CSS class-based structural selectors
-  4. XPath text content
-  5. Structural selectors (last resort — documented when used)
+The upload flow at https://www.redgifs.com/create is a **6-step wizard**:
+  Step 1: Select file (video or image) — hidden file input behind buttons
+  Step 2: Video editor — trim slider, sound toggle, "Next"
+  Step 3: Audience preference — radio buttons, "Next"
+  Step 4: Tag selection — click tag buttons (3-10 required), "Next"
+  Step 5: Niche selection — checkboxes or "Skip"
+  Step 6: Description (disabled for non-verified), "Make Private", "Publish"
 
-IMPORTANT: All selectors below are PLACEHOLDERS that must be verified
-by inspecting the actual RedGifs upload page (https://www.redgifs.com/upload)
-in a browser DevTools session. The fallback chain pattern provides resilience
-but actual selector values need manual discovery before first use.
+Selectors were captured from the real RedGifs DOM on 2026-02-15.
 """
 
 from __future__ import annotations
@@ -25,7 +23,6 @@ from pathlib import Path
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -40,73 +37,92 @@ from loguru import logger
 from src.platforms.base import PlatformAutomation
 
 REDGIFS_BASE = "https://www.redgifs.com"
-REDGIFS_UPLOAD_URL = f"{REDGIFS_BASE}/upload"
+REDGIFS_CREATE_URL = f"{REDGIFS_BASE}/create"
 
 # Upload processing timeouts (seconds)
-_UPLOAD_TIMEOUT_VIDEO = 300  # videos may take 3-5 minutes to process on RedGifs
+_UPLOAD_TIMEOUT_VIDEO = 300  # videos may take 3-5 minutes to process
 _UPLOAD_TIMEOUT_IMAGE = 60
 _VIDEO_EXTENSIONS = {".mp4", ".mov", ".webm"}
 
+_VALID_AUDIENCES = ("straight", "gay", "lesbian", "trans", "bisexual", "animated")
+
 # ---------------------------------------------------------------------------
-# Selector fallback chains — PLACEHOLDERS.  Must be verified against the
-# real RedGifs UI by inspecting https://www.redgifs.com/upload in DevTools.
-# Each entry is (By strategy, selector value).
+# Selector fallback chains — derived from real RedGifs DOM (2026-02-15).
+# Each entry is a list of (By strategy, selector value) tuples tried in order.
 # ---------------------------------------------------------------------------
 SELECTORS = {
-    # File input on the upload page
-    "upload_file_input": [
+    # Step 1: Upload page buttons
+    "select_video_button": [
+        (By.CSS_SELECTOR, 'button[aria-label="select a video"]'),
+        (By.XPATH, '//button[.//span[text()="Select a Video"]]'),
+    ],
+    "select_image_button": [
+        (By.CSS_SELECTOR, 'button[aria-label="select images(s)"]'),
+        (By.XPATH, '//button[.//span[text()="Select Image(s)"]]'),
+    ],
+    "hidden_file_input": [
         (By.CSS_SELECTOR, 'input[type="file"]'),
-        (By.CSS_SELECTOR, 'input[accept*="video"]'),
-        (By.CSS_SELECTOR, 'input[accept*="image"]'),
         (By.XPATH, '//input[@type="file"]'),
     ],
-    # Tag / keyword input field
-    "tags_input": [
-        (By.CSS_SELECTOR, 'input[placeholder*="tag"]'),
-        (By.CSS_SELECTOR, 'input[placeholder*="Tag"]'),
-        (By.CSS_SELECTOR, 'input[name="tags"]'),
-        (By.CSS_SELECTOR, 'input[aria-label*="tag"]'),
-        (By.XPATH, '//input[contains(@placeholder, "tag")]'),
-    ],
-    # Title / description input (optional on RedGifs)
-    "title_input": [
-        (By.CSS_SELECTOR, 'input[placeholder*="title"]'),
-        (By.CSS_SELECTOR, 'input[placeholder*="Title"]'),
-        (By.CSS_SELECTOR, 'input[name="title"]'),
-        (By.XPATH, '//input[contains(@placeholder, "itle")]'),
-    ],
-    # Sound toggle checkbox / button
+
+    # Step 2: Video editor
     "sound_toggle": [
-        (By.CSS_SELECTOR, 'input[type="checkbox"][name*="sound"]'),
-        (By.XPATH, '//label[contains(text(), "Sound")]'),
-        (By.XPATH, '//*[contains(text(), "sound")]//input'),
+        (By.CSS_SELECTOR, 'input.ToggleButton-Input[type="checkbox"]'),
+        (By.XPATH, '//p[text()="Enable Sound"]/following::input[@type="checkbox"][1]'),
     ],
-    # Submit / publish button
-    "submit_button": [
-        (By.CSS_SELECTOR, 'button[type="submit"]'),
-        (By.XPATH, '//button[contains(text(), "Upload")]'),
-        (By.XPATH, '//button[contains(text(), "Publish")]'),
-        (By.XPATH, '//button[contains(text(), "Submit")]'),
+    "next_button_primary_full": [
+        (By.CSS_SELECTOR, "button.Button_primary.Button_fullWidth"),
+        (By.XPATH, '//button[contains(@class,"Button_primary") and contains(@class,"Button_fullWidth")]'),
     ],
-    # Upload progress / processing indicator (wait for it to disappear)
-    "upload_progress": [
-        (By.CSS_SELECTOR, '.upload-progress'),
-        (By.CSS_SELECTOR, '[class*="progress"]'),
-        (By.CSS_SELECTOR, '[class*="processing"]'),
+
+    # Step 3: Audience preference — radio inputs are selected dynamically
+    # via input[id="{value}"] where value ∈ _VALID_AUDIENCES
+    "next_step_button": [
+        (By.CSS_SELECTOR, 'button[aria-label="next step"]'),
+        (By.XPATH, '//button[@aria-label="next step"]'),
     ],
-    # Indicators that the user is logged in
+
+    # Step 4: Tag selection
+    "tag_search_input": [
+        (By.CSS_SELECTOR, 'input[placeholder="Type to search for tags..."]'),
+        (By.CSS_SELECTOR, "div.TagSelector-SearchBar input[type='text']"),
+    ],
+    # Individual tag buttons are matched dynamically:
+    #   button[aria-label="Select {Tag Name} tag"]
+
+    # Step 5: Niche selection
+    "niche_skip_button": [
+        (By.CSS_SELECTOR, "div.UploadNicheStep-Bottom button.Button_secondary"),
+        (By.XPATH, '//div[contains(@class,"UploadNicheStep-Bottom")]//button[.//div[text()="Skip"]]'),
+    ],
+    "niche_next_button": [
+        (By.CSS_SELECTOR, "div.UploadNicheStep-Bottom button.Button_primary"),
+        (By.XPATH, '//div[contains(@class,"UploadNicheStep-Bottom")]//button[.//div[text()="Next"]]'),
+    ],
+
+    # Step 6: Publish
+    "publish_button": [
+        (By.CSS_SELECTOR, 'button[aria-label="publish"]'),
+        (By.XPATH, '//button[@aria-label="publish"]'),
+    ],
+    "make_private_toggle": [
+        (By.CSS_SELECTOR, "div.UploadFifthStep-Option input.ToggleButton-Input"),
+        (By.XPATH, '//p[text()="Make Private"]/following::input[@type="checkbox"][1]'),
+    ],
+
+    # Login indicators
     "login_indicator": [
-        (By.CSS_SELECTOR, 'a[href="/upload"]'),
+        (By.CSS_SELECTOR, 'a[href="/create"]'),
         (By.CSS_SELECTOR, '[aria-label="Upload"]'),
         (By.CSS_SELECTOR, 'a[href*="/users/"]'),
         (By.XPATH, '//a[contains(text(), "Upload")]'),
     ],
-    # Indicators that the user is NOT logged in
     "not_logged_in_indicator": [
         (By.XPATH, '//a[contains(text(), "Log In")]'),
         (By.XPATH, '//a[contains(text(), "Sign Up")]'),
         (By.XPATH, '//button[contains(text(), "Log In")]'),
     ],
+
     # Cookie / popup dismiss
     "cookie_dismiss": [
         (By.XPATH, '//button[contains(text(), "Accept")]'),
@@ -118,6 +134,7 @@ SELECTORS = {
         (By.CSS_SELECTOR, '[aria-label="Close"]'),
         (By.XPATH, '//button[contains(text(), "Not now")]'),
     ],
+
     # Like button on content pages (for human simulation)
     "like_button": [
         (By.CSS_SELECTOR, '[aria-label="Like"]'),
@@ -182,7 +199,6 @@ class RedGifsAutomation(PlatformAutomation):
         for ch in text:
             element.send_keys(ch)
             self._typing_delay()
-            # Occasional longer pause to mimic thinking
             if random.random() < 0.05:
                 time.sleep(random.uniform(0.3, 0.8))
 
@@ -262,7 +278,7 @@ class RedGifsAutomation(PlatformAutomation):
         return False
 
     # ------------------------------------------------------------------
-    # Upload content (replaces compose_tweet for RedGifs)
+    # Upload content — 6-step wizard at /create
     # ------------------------------------------------------------------
     def upload_content(
         self,
@@ -270,143 +286,504 @@ class RedGifsAutomation(PlatformAutomation):
         tags: list[str] | None = None,
         title: str = "",
         sound_on: bool = True,
+        audience_preference: str = "straight",
     ) -> str | None:
-        """Upload a file to RedGifs.
+        """Upload a file to RedGifs via the 6-step create wizard.
 
-        Returns the resulting URL if available, else None.
-        This replaces compose_tweet — RedGifs is upload-only rather than
-        microblog-style.
+        Steps:
+          1. Navigate to /create and inject the file into the hidden input
+          2. Handle sound toggle in the video editor, click Next
+          3. Select audience preference, click Next
+          4. Select tags by clicking tag buttons, click Next
+          5. Skip niche selection
+          6. Click Publish
+
+        Returns the resulting content URL if available, else None.
         """
-        self.navigate_to(REDGIFS_UPLOAD_URL)
+        if audience_preference not in _VALID_AUDIENCES:
+            audience_preference = "straight"
+
+        self.navigate_to(REDGIFS_CREATE_URL)
         self._action_delay()
         self.dismiss_popups()
 
+        is_video = media_file.suffix.lower() in _VIDEO_EXTENSIONS
+
         try:
-            # Step 1: Find the file input and upload
-            file_input = _find_with_fallback(
-                self.driver, "upload_file_input", timeout=15
-            )
+            # === Step 1: Upload the file ===
             abs_path = str(media_file.resolve())
-            logger.debug(f"Uploading to RedGifs: {abs_path}")
-            file_input.send_keys(abs_path)
-            self._action_delay()
+            logger.info(f"[RedGifs] Uploading file: {media_file.name}")
+            self._inject_file(abs_path, is_video)
 
-            # Step 2: Wait for upload / processing
-            has_video = media_file.suffix.lower() in _VIDEO_EXTENSIONS
-            process_timeout = (
-                _UPLOAD_TIMEOUT_VIDEO if has_video else _UPLOAD_TIMEOUT_IMAGE
-            )
-            self._wait_for_upload_processing(process_timeout)
+            # === Step 2: Video editor — sound toggle + Next ===
+            if is_video:
+                self._handle_video_editor(sound_on)
+            else:
+                # For images, the editor step may be skipped or have a
+                # simpler layout.  Wait for whichever step appears next.
+                self._wait_for_any_next_button(timeout=30)
+                self._click_visible_next_button()
 
-            # Step 3: Enter tags
-            if tags:
-                self._enter_tags(tags)
+            # === Step 3: Audience preference ===
+            self._select_audience(audience_preference)
 
-            # Step 4: Optionally set title
-            if title:
-                self._enter_title(title)
+            # === Step 4: Tag selection ===
+            self._select_tags(tags or [])
 
-            # Step 5: Optionally toggle sound off
-            if not sound_on:
-                self._toggle_sound_off()
+            # === Step 5: Niche selection — skip ===
+            self._handle_niche_step()
 
-            self._action_delay()
-
-            # Step 6: Submit
-            submit_btn = _find_with_fallback(
-                self.driver, "submit_button", timeout=15, clickable=True
-            )
-            self._move_and_click(submit_btn)
-            logger.info("RedGifs upload submitted")
-            self._page_delay()
-
-            # Step 7: Extract the resulting URL
-            # After submission, RedGifs typically redirects to the new content page
-            time.sleep(5)
-            result_url = self.get_current_url()
-            if REDGIFS_BASE in result_url and result_url != REDGIFS_UPLOAD_URL:
-                logger.info(f"RedGifs upload URL: {result_url}")
-                return result_url
-
-            return None
+            # === Step 6: Publish ===
+            result_url = self._publish()
+            return result_url
 
         except (TimeoutException, NoSuchElementException) as exc:
-            logger.error(f"Failed to upload to RedGifs: {exc}")
+            logger.error(f"[RedGifs] Upload failed: {exc}")
             return None
         except ElementClickInterceptedException as exc:
-            logger.error(f"Could not click submit button on RedGifs: {exc}")
+            logger.error(f"[RedGifs] Click intercepted during upload: {exc}")
             return None
 
     # ------------------------------------------------------------------
-    # Upload helpers
+    # Step 1 helpers — file injection
     # ------------------------------------------------------------------
-    def _wait_for_upload_processing(self, timeout: int) -> None:
-        """Wait for the upload progress indicator to disappear."""
-        for by, value in SELECTORS.get("upload_progress", []):
+    def _inject_file(self, abs_path: str, is_video: bool) -> None:
+        """Find the hidden file input and send the file path.
+
+        RedGifs hides the <input type="file"> behind styled buttons.
+        Selenium can send_keys to hidden inputs if we find them in the DOM.
+        If the input isn't present yet, we click the upload button to
+        trigger its creation, then find and populate it.
+        """
+        # Try to find a hidden file input already in the DOM
+        file_input = self._try_find_file_input(timeout=3)
+
+        if not file_input:
+            # Click the appropriate upload button to trigger the file input
+            btn_key = "select_video_button" if is_video else "select_image_button"
             try:
-                # Wait for progress indicator to APPEAR
-                WebDriverWait(self.driver, 10).until(
+                upload_btn = _find_with_fallback(
+                    self.driver, btn_key, timeout=10, clickable=True
+                )
+                # Use JavaScript click to avoid intercepted-click issues
+                self.driver.execute_script("arguments[0].click();", upload_btn)
+                time.sleep(1)
+            except NoSuchElementException:
+                logger.warning(
+                    f"[RedGifs] Could not find {btn_key}, trying generic file input"
+                )
+
+            # Now the file input should exist
+            file_input = self._try_find_file_input(timeout=5)
+
+        if not file_input:
+            # Last resort: use JS to find any file input in the DOM
+            file_input = self.driver.execute_script(
+                "var el = document.querySelector('input[type=\"file\"]');"
+                "if (el) { el.style.display = 'block'; el.style.opacity = '1'; }"
+                "return el;"
+            )
+
+        if not file_input:
+            raise NoSuchElementException(
+                "[RedGifs] Could not find file input element on /create"
+            )
+
+        file_input.send_keys(abs_path)
+        logger.debug(f"[RedGifs] File injected: {abs_path}")
+
+        # Wait for the file to be accepted and the wizard to advance
+        timeout = _UPLOAD_TIMEOUT_VIDEO if abs_path.lower().endswith(
+            tuple(_VIDEO_EXTENSIONS)
+        ) else _UPLOAD_TIMEOUT_IMAGE
+        self._wait_for_wizard_advance(timeout)
+
+    def _try_find_file_input(self, timeout: float = 3):
+        """Attempt to find an <input type='file'> on the page."""
+        for by, value in SELECTORS["hidden_file_input"]:
+            try:
+                el = WebDriverWait(self.driver, timeout).until(
                     EC.presence_of_element_located((by, value))
                 )
-                # Now wait for it to DISAPPEAR
-                WebDriverWait(self.driver, timeout).until_not(
-                    EC.presence_of_element_located((by, value))
-                )
-                logger.debug("Upload processing complete")
-                return
+                return el
             except TimeoutException:
                 continue
+        return None
 
-        # Fallback: wait a fixed amount if no progress indicator was found
-        fallback = timeout // 3
-        logger.debug(
-            f"No progress indicator found, waiting {fallback}s as fallback"
-        )
-        time.sleep(fallback)
+    def _wait_for_wizard_advance(self, timeout: int) -> None:
+        """Wait for the wizard to advance past the file-upload step.
 
-    def _enter_tags(self, tags: list[str]) -> None:
-        """Enter tags into the tag input field."""
+        After file injection, RedGifs processes the upload and shows
+        either the video editor (step 2) or advances further.  We wait
+        for a "Next" button or the audience preference step to appear.
+        """
         try:
-            tag_input = _find_with_fallback(
-                self.driver, "tags_input", timeout=10
+            WebDriverWait(self.driver, timeout).until(
+                lambda d: (
+                    self._element_present("next_button_primary_full")
+                    or self._element_present("next_step_button")
+                )
             )
-            tag_input.click()
-            self._action_delay()
+            logger.debug("[RedGifs] Wizard advanced past file upload")
+        except TimeoutException:
+            logger.warning(
+                f"[RedGifs] Wizard did not advance within {timeout}s — "
+                "attempting to continue anyway"
+            )
 
-            for tag in tags:
-                clean_tag = tag.strip().strip("#")
-                if clean_tag:
-                    self._human_type(tag_input, clean_tag)
-                    # Tags are typically confirmed with Enter or comma
-                    tag_input.send_keys(Keys.ENTER)
-                    self._action_delay()
+    def _element_present(self, selector_key: str) -> bool:
+        """Check if any selector in the fallback chain matches (no wait)."""
+        for by, value in SELECTORS.get(selector_key, []):
+            try:
+                self.driver.find_element(by, value)
+                return True
+            except NoSuchElementException:
+                continue
+        return False
 
-            logger.debug(f"Entered {len(tags)} tags")
-        except NoSuchElementException:
-            logger.warning("Could not find tag input on RedGifs upload page")
-
-    def _enter_title(self, title: str) -> None:
-        """Enter a title into the title field."""
+    # ------------------------------------------------------------------
+    # Step 2 helpers — video editor
+    # ------------------------------------------------------------------
+    def _handle_video_editor(self, sound_on: bool) -> None:
+        """Handle the video editor step: optional sound toggle + Next."""
+        # Wait for the "Next" button in the video editor to become available
         try:
-            title_input = _find_with_fallback(
-                self.driver, "title_input", timeout=8
+            _find_with_fallback(
+                self.driver, "next_button_primary_full",
+                timeout=_UPLOAD_TIMEOUT_VIDEO, clickable=True,
             )
-            title_input.click()
-            self._human_type(title_input, title)
-            logger.debug(f"Entered title: {title[:50]}...")
         except NoSuchElementException:
-            logger.warning("Could not find title input on RedGifs upload page")
+            logger.warning("[RedGifs] Video editor Next button not found")
+            return
+
+        # Handle sound toggle
+        if not sound_on:
+            self._toggle_sound_off()
+
+        self._action_delay()
+
+        # Click "Next" to move to step 3
+        self._click_next_primary_full()
 
     def _toggle_sound_off(self) -> None:
-        """Toggle the sound option off."""
+        """Uncheck the Enable Sound toggle if it's currently checked."""
         try:
             toggle = _find_with_fallback(
-                self.driver, "sound_toggle", timeout=5, clickable=True
+                self.driver, "sound_toggle", timeout=5
             )
-            self._move_and_click(toggle)
-            logger.debug("Toggled sound off")
+            is_checked = toggle.get_attribute("checked") is not None
+            if is_checked:
+                # Click the parent wrapper to toggle (direct input click
+                # may not work with custom toggle components)
+                wrapper = toggle.find_element(
+                    By.XPATH, "./ancestor::div[contains(@class,'ToggleButton')]"
+                )
+                self._move_and_click(wrapper)
+                logger.debug("[RedGifs] Sound toggled OFF")
+                self._action_delay()
         except NoSuchElementException:
-            logger.debug("Sound toggle not found — may default to on")
+            logger.debug("[RedGifs] Sound toggle not found — may default to on")
+
+    def _click_next_primary_full(self) -> None:
+        """Click the full-width primary Next button (video editor step)."""
+        btn = _find_with_fallback(
+            self.driver, "next_button_primary_full", timeout=10, clickable=True
+        )
+        self._move_and_click(btn)
+        self._action_delay()
+
+    # ------------------------------------------------------------------
+    # Step 3 helpers — audience preference
+    # ------------------------------------------------------------------
+    def _select_audience(self, preference: str) -> None:
+        """Select an audience radio button and click Next."""
+        # Wait for the audience step to appear
+        try:
+            WebDriverWait(self.driver, 15).until(
+                EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, "ul.GifPreferenceList")
+                )
+            )
+        except TimeoutException:
+            logger.warning("[RedGifs] Audience preference list not found — skipping")
+            # Try to find and click whatever Next button is visible
+            self._click_any_next_button()
+            return
+
+        # Click the radio button for the chosen audience
+        try:
+            radio = WebDriverWait(self.driver, 5).until(
+                EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, f'input[type="radio"][id="{preference}"]')
+                )
+            )
+            # Click the label (parent) for better hit area
+            label = radio.find_element(By.XPATH, "./ancestor::label")
+            self._move_and_click(label)
+            logger.debug(f"[RedGifs] Selected audience: {preference}")
+        except (TimeoutException, NoSuchElementException):
+            logger.warning(
+                f"[RedGifs] Could not select audience '{preference}' — "
+                "defaulting to whatever is pre-selected"
+            )
+
+        self._action_delay()
+
+        # Click "Next" (aria-label="next step")
+        self._click_next_step_button()
+
+    def _click_next_step_button(self) -> None:
+        """Click the 'next step' button (audience / tags steps)."""
+        btn = _find_with_fallback(
+            self.driver, "next_step_button", timeout=10, clickable=True
+        )
+        self._move_and_click(btn)
+        self._action_delay()
+
+    def _click_any_next_button(self) -> None:
+        """Click whichever Next button is currently visible."""
+        for key in ("next_step_button", "next_button_primary_full",
+                     "niche_next_button"):
+            try:
+                btn = _find_with_fallback(
+                    self.driver, key, timeout=3, clickable=True
+                )
+                self._move_and_click(btn)
+                self._action_delay()
+                return
+            except NoSuchElementException:
+                continue
+        logger.warning("[RedGifs] No Next button found to click")
+
+    # ------------------------------------------------------------------
+    # Step 4 helpers — tag selection
+    # ------------------------------------------------------------------
+    def _select_tags(self, tags: list[str]) -> None:
+        """Select tags by clicking the corresponding tag buttons.
+
+        RedGifs requires 3-10 tags.  Each tag button has
+        aria-label="Select {Tag Name} tag".  If a tag isn't visible in
+        the initial list, we type it into the search input to filter.
+        """
+        # Wait for the tag selector to appear
+        try:
+            WebDriverWait(self.driver, 15).until(
+                EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, "div.TagSelector")
+                )
+            )
+        except TimeoutException:
+            logger.warning("[RedGifs] Tag selector not found — skipping tags")
+            self._click_any_next_button()
+            return
+
+        selected_count = 0
+
+        for tag in tags[:10]:  # RedGifs max 10 tags
+            tag_clean = tag.strip()
+            if not tag_clean:
+                continue
+
+            clicked = self._try_click_tag(tag_clean)
+            if clicked:
+                selected_count += 1
+            else:
+                # Tag not visible — try searching for it
+                clicked = self._search_and_click_tag(tag_clean)
+                if clicked:
+                    selected_count += 1
+
+            if selected_count > 0:
+                time.sleep(random.uniform(0.5, 1.5))
+
+        if selected_count < 3:
+            logger.warning(
+                f"[RedGifs] Only {selected_count} tags selected "
+                f"(minimum 3 required) — Next button may be disabled"
+            )
+
+        self._action_delay()
+
+        # Click "Next" — may need to wait for it to become enabled
+        try:
+            WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable(
+                    (By.CSS_SELECTOR, 'button[aria-label="next step"]')
+                )
+            )
+            self._click_next_step_button()
+        except TimeoutException:
+            logger.warning(
+                "[RedGifs] Next button not clickable after tag selection "
+                f"({selected_count} tags selected, need >= 3)"
+            )
+            # Force-click anyway
+            self._click_any_next_button()
+
+    def _try_click_tag(self, tag_name: str) -> bool:
+        """Try to click a tag button by its aria-label."""
+        selector = f'button[aria-label="Select {tag_name} tag"]'
+        try:
+            btn = WebDriverWait(self.driver, 2).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
+            )
+            self.driver.execute_script(
+                "arguments[0].scrollIntoView({block:'center'});", btn
+            )
+            time.sleep(0.3)
+            self._move_and_click(btn)
+            logger.debug(f"[RedGifs] Selected tag: {tag_name}")
+            return True
+        except (TimeoutException, NoSuchElementException):
+            return False
+        except ElementClickInterceptedException:
+            # Try JS click as fallback
+            try:
+                btn = self.driver.find_element(By.CSS_SELECTOR, selector)
+                self.driver.execute_script("arguments[0].click();", btn)
+                logger.debug(f"[RedGifs] Selected tag (JS click): {tag_name}")
+                return True
+            except NoSuchElementException:
+                return False
+
+    def _search_and_click_tag(self, tag_name: str) -> bool:
+        """Type the tag name into the search input, then click the result."""
+        try:
+            search_input = _find_with_fallback(
+                self.driver, "tag_search_input", timeout=5
+            )
+            # Clear previous search
+            search_input.clear()
+            self._human_type(search_input, tag_name)
+            time.sleep(1.5)  # Wait for search results to filter
+
+            # Try to click the tag button in the filtered results
+            clicked = self._try_click_tag(tag_name)
+
+            # Clear the search input for the next tag
+            search_input.clear()
+            time.sleep(0.5)
+
+            return clicked
+        except NoSuchElementException:
+            logger.debug(f"[RedGifs] Could not search for tag: {tag_name}")
+            return False
+
+    # ------------------------------------------------------------------
+    # Step 5 helpers — niche selection
+    # ------------------------------------------------------------------
+    def _handle_niche_step(self) -> None:
+        """Handle the niche selection step — skip for now."""
+        # Wait for the niche step to appear
+        try:
+            WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, "div.UploadNicheStep")
+                )
+            )
+        except TimeoutException:
+            # Niche step might be skipped by the platform
+            logger.debug("[RedGifs] Niche step not found — may have been skipped")
+            return
+
+        self._action_delay()
+
+        # Click "Skip" or "Next" — prefer Next if available, Skip as fallback
+        for key in ("niche_next_button", "niche_skip_button"):
+            try:
+                btn = _find_with_fallback(
+                    self.driver, key, timeout=5, clickable=True
+                )
+                self._move_and_click(btn)
+                logger.debug(f"[RedGifs] Niche step: clicked {key}")
+                self._action_delay()
+                return
+            except NoSuchElementException:
+                continue
+
+        logger.warning("[RedGifs] Could not find Skip or Next on niche step")
+
+    # ------------------------------------------------------------------
+    # Step 6 helpers — publish
+    # ------------------------------------------------------------------
+    def _publish(self) -> str | None:
+        """Click Publish and wait for the result URL."""
+        # Wait for the publish step to appear
+        try:
+            WebDriverWait(self.driver, 15).until(
+                EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, "div.UploadFifthStep")
+                )
+            )
+        except TimeoutException:
+            logger.debug("[RedGifs] Publish step container not found — trying anyway")
+
+        self._action_delay()
+
+        # Click Publish
+        publish_btn = _find_with_fallback(
+            self.driver, "publish_button", timeout=15, clickable=True
+        )
+        self._move_and_click(publish_btn)
+        logger.info("[RedGifs] Clicked Publish")
+
+        # Wait for redirect to the content page
+        self._page_delay()
+        time.sleep(5)
+
+        # Check if we've been redirected to a content page
+        result_url = self.get_current_url()
+        if (
+            REDGIFS_BASE in result_url
+            and result_url != REDGIFS_CREATE_URL
+            and "/create" not in result_url
+        ):
+            logger.info(f"[RedGifs] Upload successful: {result_url}")
+            return result_url
+
+        # Sometimes the URL doesn't change immediately.  Wait a bit more
+        # and check for a success indicator or URL change.
+        for _ in range(6):
+            time.sleep(5)
+            result_url = self.get_current_url()
+            if (
+                REDGIFS_BASE in result_url
+                and "/create" not in result_url
+            ):
+                logger.info(f"[RedGifs] Upload successful (delayed): {result_url}")
+                return result_url
+
+        logger.warning("[RedGifs] Could not confirm upload success — URL unchanged")
+        return None
+
+    # ------------------------------------------------------------------
+    # Generic helpers
+    # ------------------------------------------------------------------
+    def _wait_for_any_next_button(self, timeout: float = 15) -> None:
+        """Wait for any variant of the Next button to appear."""
+        try:
+            WebDriverWait(self.driver, timeout).until(
+                lambda d: (
+                    self._element_present("next_button_primary_full")
+                    or self._element_present("next_step_button")
+                )
+            )
+        except TimeoutException:
+            logger.debug("[RedGifs] No Next button appeared within timeout")
+
+    def _click_visible_next_button(self) -> None:
+        """Click whichever Next button is currently visible."""
+        for key in ("next_button_primary_full", "next_step_button"):
+            try:
+                btn = _find_with_fallback(
+                    self.driver, key, timeout=3, clickable=True
+                )
+                self._move_and_click(btn)
+                self._action_delay()
+                return
+            except NoSuchElementException:
+                continue
+        logger.warning("[RedGifs] No visible Next button found")
 
     # ------------------------------------------------------------------
     # Human-like browsing actions (for human simulator)
