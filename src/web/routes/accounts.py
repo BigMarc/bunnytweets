@@ -253,6 +253,14 @@ def _parse_account_form(form):
         },
     }
 
+    # RedGifs-specific fields
+    if platform == "redgifs":
+        tags_raw = form.get("redgifs.default_tags", "").strip()
+        if tags_raw:
+            tags = [t.strip() for t in tags_raw.split(",") if t.strip()]
+            acct["redgifs"]["default_tags"] = tags
+        acct["redgifs"]["sound_on"] = "redgifs.sound_on" in form
+
     # Google Drive
     folder_id = form.get("google_drive.folder_id", "").strip()
     if folder_id:
@@ -283,9 +291,12 @@ def _parse_account_form(form):
     cat_set = set(selected_cats) | {"Global"}
     acct["posting"]["title_categories"] = sorted(cat_set)
 
-    # Retweeting
-    rt_enabled = "retweeting.enabled" in form
-    acct["retweeting"] = {"enabled": rt_enabled}
+    # Retweeting (not applicable to RedGifs)
+    if platform != "redgifs":
+        rt_enabled = "retweeting.enabled" in form
+        acct["retweeting"] = {"enabled": rt_enabled}
+    else:
+        rt_enabled = False
     if rt_enabled:
         acct["retweeting"]["daily_limit"] = _to_int(
             form.get("retweeting.daily_limit", "3"), 3
@@ -355,9 +366,12 @@ def _parse_account_form(form):
             {"start": "18:00", "end": "23:00"},
         ]
 
-    # Reply to replies
-    reply_enabled = "reply_to_replies.enabled" in form
-    acct["reply_to_replies"] = {"enabled": reply_enabled}
+    # Reply to replies (not applicable to RedGifs)
+    if platform != "redgifs":
+        reply_enabled = "reply_to_replies.enabled" in form
+        acct["reply_to_replies"] = {"enabled": reply_enabled}
+    else:
+        reply_enabled = False
     if reply_enabled:
         acct["reply_to_replies"]["daily_limit"] = _to_int(
             form.get("reply_to_replies.daily_limit", "10"), 10

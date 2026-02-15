@@ -1,6 +1,6 @@
 # BunnyTweets - Multi-Platform Account Configuration
 # Copy this file to accounts.yaml and fill in your details.
-# Supported platforms: "twitter" (default) and "threads"
+# Supported platforms: "twitter" (default), "threads", and "redgifs"
 
 accounts:
   # --- Twitter Account ---
@@ -220,3 +220,55 @@ accounts:
       time_windows:
         - start: "10:00"
           end: "20:00"
+
+  # --- RedGifs Account ---
+  - name: "MyRedGifsAccount"
+    platform: "redgifs"
+    content_rating: "nsfw"    # RedGifs content is typically NSFW
+    enabled: true
+
+    # The browser profile should already be logged in to redgifs.com.
+    redgifs:
+      username: "my_redgifs_username"
+      profile_id: "gologin_or_dolphin_profile_id"
+      # Default tags applied to every upload (discovery keywords)
+      default_tags: ["blonde", "petite", "amateur"]
+      # Whether to enable sound on uploaded videos (default: true)
+      sound_on: true
+
+    google_drive:
+      folder_id: "1ABCdefGHIjklMNOpqrSTUvwx"
+      check_interval_minutes: 15
+      # RedGifs supports video formats primarily
+      file_types: ["mp4", "mov", "webm", "gif", "jpg", "png"]
+
+    posting:
+      enabled: true
+      schedule:
+        - time: "10:00"
+        - time: "16:00"
+        - time: "22:00"
+      # Fallback title if no .txt file accompanies the media
+      default_text: ""
+      title_categories: ["Global"]
+
+    # RedGifs does not support retweeting/reposting — omit this section.
+    # RedGifs does not support replying — omit reply_to_replies section.
+
+    human_simulation:
+      enabled: true
+      session_duration_min: 15
+      session_duration_max: 30
+      daily_sessions_limit: 2
+      daily_likes_limit: 15
+      time_windows:
+        - start: "10:00"
+          end: "14:00"
+        - start: "20:00"
+          end: "23:00"
+      # RedGifs-specific action weights
+      # action_weights:
+      #   scroll: 40
+      #   view_content: 25
+      #   like: 15
+      #   explore: 20
