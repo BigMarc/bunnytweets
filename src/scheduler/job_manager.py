@@ -1,4 +1,13 @@
-"""APScheduler-based job manager that sets up cron and interval jobs per account."""
+"""APScheduler-based job manager that sets up cron and interval jobs per account.
+
+When a ``db_url`` is provided the scheduler persists jobs to SQLite via
+APScheduler's built-in ``SQLAlchemyJobStore``.  This means:
+
+* Jobs survive process restarts.
+* Jobs missed while the process was down will still fire if the restart
+  happens within ``misfire_grace_time`` seconds (default 900 = 15 min).
+* Multiple accumulated misfires coalesce into a single execution.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +15,7 @@ import random
 from datetime import datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from loguru import logger
 
@@ -13,8 +23,19 @@ from loguru import logger
 class JobManager:
     """Manages all scheduled jobs via APScheduler."""
 
-    def __init__(self, timezone: str = "America/New_York"):
-        self.scheduler = BackgroundScheduler(timezone=timezone)
+    def __init__(self, timezone: str = "America/New_York", db_url: str | None = None):
+        jobstores = {}
+        if db_url:
+            jobstores["default"] = SQLAlchemyJobStore(url=db_url)
+
+        self.scheduler = BackgroundScheduler(
+            timezone=timezone,
+            jobstores=jobstores,
+            job_defaults={
+                "misfire_grace_time": 900,   # 15 minutes
+                "coalesce": True,
+            },
+        )
         self.scheduler.add_listener(self._on_job_event, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
         self.timezone = timezone
 

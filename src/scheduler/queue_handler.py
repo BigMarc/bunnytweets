@@ -58,6 +58,41 @@ class QueueHandler:
         self._notifier = notifier
         self._paused_accounts: dict[str, datetime] = {}
 
+        # Restore paused accounts from a previous run so they don't
+        # accidentally resume when the process restarts.
+        self._load_paused_accounts()
+
+    def _load_paused_accounts(self) -> None:
+        """Restore paused accounts from the database.
+
+        If an account was paused before the process stopped, re-populate
+        ``_paused_accounts`` so the pause is honoured after restart.  Accounts
+        whose pause window has already expired are cleared back to idle.
+        """
+        if not self._db:
+            return
+        try:
+            from src.core.database import AccountStatus
+
+            with self._db.session() as s:
+                paused = (
+                    s.query(AccountStatus)
+                    .filter(AccountStatus.status == "paused")
+                    .all()
+                )
+                pause_minutes = self._error_handling.get("pause_duration_minutes", 60)
+                for acct in paused:
+                    # Estimate unpause time from the error_message or fall back
+                    # to pause_duration_minutes from now (safe default).
+                    unpause_at = datetime.utcnow() + timedelta(minutes=pause_minutes)
+                    self._paused_accounts[acct.account_name] = unpause_at
+                    logger.info(
+                        f"[{acct.account_name}] Restored paused state from DB "
+                        f"(will unpause around {unpause_at.strftime('%H:%M')})"
+                    )
+        except Exception as exc:
+            logger.warning(f"Could not load paused accounts from DB: {exc}")
+
     def submit(self, task: Task) -> None:
         """Add a task to the queue."""
         self._queue.put(task)
