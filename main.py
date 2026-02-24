@@ -168,6 +168,8 @@ class Application:
         self._max_setup_retries = 3
 
         self._shutdown = False
+        self._shutdown_lock = threading.Lock()
+        self._shutdown_complete = False
         self._ready = threading.Event()
 
         global _app_ref
@@ -317,7 +319,6 @@ class Application:
         automation, poster, retweeter, simulator, replier = (
             self._create_platform_components(acct, driver)
         )
-        self._automations[name] = automation
 
         # Check login state – profiles should already be logged in
         platform_labels = {"threads": "Threads", "redgifs": "RedGifs"}
@@ -331,8 +332,16 @@ class Application:
                 name, status="error", error_message="Not logged in"
             )
             self.notifier.alert_not_logged_in(name)
+            # Stop the browser we just started to avoid orphaned processes
+            try:
+                self.profile_manager.stop_browser(profile_id)
+            except Exception:
+                pass
             return False
 
+        # Only store components after login check passes to avoid stale
+        # entries visible to health-check and dispatch threads.
+        self._automations[name] = automation
         if poster:
             self._posters[name] = poster
         if retweeter is not None:
@@ -413,7 +422,7 @@ class Application:
 
     def _check_cta_pending(self) -> None:
         """Check all accounts for pending CTA comments (posted >55 min ago)."""
-        for name, poster in self._posters.items():
+        for name, poster in list(self._posters.items()):
             if not hasattr(poster, "run_cta_comment"):
                 continue
             status = self.db.get_account_status(name)
@@ -436,6 +445,14 @@ class Application:
             attempts = self._setup_retry_counts.get(name, 0)
             if attempts >= self._max_setup_retries:
                 logger.warning(f"[{name}] Giving up setup retry after {attempts} attempts")
+                self.notifier.send(
+                    title="Account Setup Failed Permanently",
+                    description=(
+                        f"**{name}** could not be initialised after "
+                        f"{attempts} attempts. Manual intervention required."
+                    ),
+                    color=0xFF0000,
+                )
                 continue
             self._setup_retry_counts[name] = attempts + 1
             logger.info(f"[{name}] Retrying setup (attempt {attempts + 1}/{self._max_setup_retries})")
@@ -481,30 +498,34 @@ class Application:
 
         setup_timeout = 180  # seconds — hard cap on total account setup time
         active_accounts = []
-        with ThreadPoolExecutor(max_workers=min(len(accounts), 5)) as pool:
-            future_to_acct = {
-                pool.submit(self.setup_account, acct): acct for acct in accounts
-            }
-            try:
-                for future in as_completed(future_to_acct, timeout=setup_timeout):
-                    acct = future_to_acct[future]
-                    try:
-                        if future.result():
-                            self.schedule_account(acct)
-                            active_accounts.append(acct)
-                        else:
-                            self._failed_accounts.append(acct)
-                    except Exception as exc:
-                        logger.error(f"[{acct['name']}] Setup failed: {exc}")
+        pool = ThreadPoolExecutor(max_workers=min(len(accounts), 5))
+        future_to_acct = {
+            pool.submit(self.setup_account, acct): acct for acct in accounts
+        }
+        try:
+            for future in as_completed(future_to_acct, timeout=setup_timeout):
+                acct = future_to_acct[future]
+                try:
+                    if future.result():
+                        self.schedule_account(acct)
+                        active_accounts.append(acct)
+                    else:
                         self._failed_accounts.append(acct)
-            except FuturesTimeout:
-                for fut, acct in future_to_acct.items():
-                    if not fut.done():
-                        logger.warning(
-                            f"[{acct['name']}] Setup timed out after {setup_timeout}s"
-                        )
-                        self._failed_accounts.append(acct)
-                        fut.cancel()
+                except Exception as exc:
+                    logger.error(f"[{acct['name']}] Setup failed: {exc}")
+                    self._failed_accounts.append(acct)
+        except FuturesTimeout:
+            for fut, acct in future_to_acct.items():
+                if not fut.done():
+                    logger.warning(
+                        f"[{acct['name']}] Setup timed out after {setup_timeout}s"
+                    )
+                    self._failed_accounts.append(acct)
+                    fut.cancel()
+        finally:
+            # Don't wait for timed-out threads — they'll finish in the
+            # background instead of blocking the engine startup forever.
+            pool.shutdown(wait=False)
 
         if not active_accounts:
             self.shutdown()
@@ -555,10 +576,11 @@ class Application:
     # Shutdown
     # ------------------------------------------------------------------
     def shutdown(self) -> None:
-        if getattr(self, '_shutdown_complete', False):
-            return
-        self._shutdown = True
-        self._shutdown_complete = True
+        with self._shutdown_lock:
+            if self._shutdown_complete:
+                return
+            self._shutdown = True
+            self._shutdown_complete = True
         logger.info("Shutting down...")
         self.job_manager.shutdown()
         self.queue.stop()
