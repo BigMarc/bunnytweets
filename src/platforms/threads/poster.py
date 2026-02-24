@@ -85,7 +85,10 @@ class ThreadsPoster:
         if not chosen_id:
             return False
 
-        chosen_meta = next(f for f in media_files if f["id"] == chosen_id)
+        chosen_meta = next((f for f in media_files if f["id"] == chosen_id), None)
+        if not chosen_meta:
+            logger.warning(f"[{self.account_name}] Chosen file {chosen_id} no longer in Drive folder")
+            return False
         use_count = self.db.get_file_use_count(self.account_name, chosen_id)
 
         logger.info(

@@ -28,7 +28,12 @@ function updateDashboard(data) {
         const label = data.engine_status.charAt(0).toUpperCase() + data.engine_status.slice(1);
         statusText.innerHTML = `<span class="${color}">${label}</span>`;
         if (data.startup_error) {
-            statusText.innerHTML += `<div class="text-danger mt-1"><small>Error: ${data.startup_error}</small></div>`;
+            const errDiv = document.createElement('div');
+            errDiv.className = 'text-danger mt-1';
+            const errSmall = document.createElement('small');
+            errSmall.textContent = 'Error: ' + data.startup_error;
+            errDiv.appendChild(errSmall);
+            statusText.appendChild(errDiv);
         }
     }
 
@@ -136,7 +141,7 @@ async function stopEngine() {
 // Manual triggers
 async function triggerPost(accountName) {
     try {
-        const resp = await fetch(`/api/actions/account/${accountName}/post`, { method: 'POST' });
+        const resp = await fetch(`/api/actions/account/${encodeURIComponent(accountName)}/post`, { method: 'POST' });
         const data = await resp.json();
         showToast(data.message, data.success ? 'success' : 'warning');
     } catch (e) {
@@ -146,7 +151,7 @@ async function triggerPost(accountName) {
 
 async function triggerRetweet(accountName) {
     try {
-        const resp = await fetch(`/api/actions/account/${accountName}/retweet`, { method: 'POST' });
+        const resp = await fetch(`/api/actions/account/${encodeURIComponent(accountName)}/retweet`, { method: 'POST' });
         const data = await resp.json();
         showToast(data.message, data.success ? 'success' : 'warning');
     } catch (e) {
@@ -156,7 +161,7 @@ async function triggerRetweet(accountName) {
 
 async function triggerSimulation(accountName) {
     try {
-        const resp = await fetch(`/api/actions/account/${accountName}/simulate`, { method: 'POST' });
+        const resp = await fetch(`/api/actions/account/${encodeURIComponent(accountName)}/simulate`, { method: 'POST' });
         const data = await resp.json();
         showToast(data.message, data.success ? 'success' : 'warning');
     } catch (e) {

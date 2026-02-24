@@ -405,8 +405,12 @@ class Database:
                 )
                 counts[t.id] = (usage.use_count or 0) if usage else 0
 
+        if not counts:
+            return None
         min_count = min(counts.values())
-        candidates = [t for t in titles if counts[t.id] == min_count]
+        candidates = [t for t in titles if counts.get(t.id) == min_count]
+        if not candidates:
+            return random.choice(titles).text
         return random.choice(candidates).text
 
     def increment_title_use(self, account_name: str, title_text: str, category_names: list[str]) -> None:

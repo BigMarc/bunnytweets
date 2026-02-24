@@ -88,7 +88,10 @@ class RedGifsPoster:
         if not chosen_id:
             return False
 
-        chosen_meta = next(f for f in media_files if f["id"] == chosen_id)
+        chosen_meta = next((f for f in media_files if f["id"] == chosen_id), None)
+        if chosen_meta is None:
+            logger.warning(f"[{self.account_name}] Chosen file {chosen_id} vanished from Drive listing")
+            return False
         use_count = self.db.get_file_use_count(self.account_name, chosen_id)
 
         logger.info(
@@ -176,8 +179,9 @@ class RedGifsPoster:
         posting_cfg = self.config.get("posting", {})
         categories = posting_cfg.get("title_categories", [])
         if categories:
-            title = self.db.get_random_title(categories)
+            title = self.db.get_random_title(categories, account_name=self.account_name)
             if title:
+                self.db.increment_title_use(self.account_name, title, categories)
                 return title
         return posting_cfg.get("default_text", "")
 

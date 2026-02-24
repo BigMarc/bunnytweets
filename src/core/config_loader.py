@@ -51,8 +51,13 @@ class ConfigLoader:
                 f"Configuration file not found: {path}. "
                 f"Copy the .example file and fill in your details."
             )
-        with open(path, "r", encoding="utf-8") as fh:
-            return yaml.safe_load(fh) or {}
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                return yaml.safe_load(fh) or {}
+        except yaml.YAMLError as exc:
+            raise ValueError(
+                f"Failed to parse {path}: {exc}"
+            ) from exc
 
     def _apply_env_overrides(self) -> None:
         """Override settings with environment variables when present."""
@@ -72,7 +77,10 @@ class ConfigLoader:
 
         port = os.getenv("DOLPHIN_ANTY_PORT")
         if port:
-            self.settings.setdefault("dolphin_anty", {})["port"] = int(port)
+            try:
+                self.settings.setdefault("dolphin_anty", {})["port"] = int(port)
+            except ValueError:
+                pass  # ignore non-numeric port env var
 
         # GoLogin overrides
         gl_token = os.getenv("GOLOGIN_TOKEN")
@@ -85,7 +93,10 @@ class ConfigLoader:
 
         gl_port = os.getenv("GOLOGIN_PORT")
         if gl_port:
-            self.settings.setdefault("gologin", {})["port"] = int(gl_port)
+            try:
+                self.settings.setdefault("gologin", {})["port"] = int(gl_port)
+            except ValueError:
+                pass  # ignore non-numeric port env var
 
         # Google Drive
         creds = os.getenv("GOOGLE_CREDENTIALS_FILE")
