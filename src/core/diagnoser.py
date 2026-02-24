@@ -652,8 +652,8 @@ class SystemDiagnoser:
             if not status_obj:
                 sub.checks.append(Check(
                     name=f"Account: {name}",
-                    status="warn",
-                    message="No status record in database",
+                    status="ok",
+                    message="Ready (not yet run)",
                 ))
                 continue
 
@@ -733,16 +733,35 @@ def _safe_url(driver) -> str:
 def _find_processes(name: str) -> int | None:
     """Count running processes whose command matches `name`.
 
-    Returns None if we can't enumerate processes (e.g. no /proc or pgrep).
+    Works on both Linux (pgrep) and Windows (tasklist).
+    Returns None if we can't enumerate processes.
     """
-    try:
-        result = subprocess.run(
-            ["pgrep", "-c", "-f", name],
-            capture_output=True, text=True, timeout=5,
-        )
-        return int(result.stdout.strip()) if result.returncode == 0 else 0
-    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
-        return None
+    import sys
+
+    if sys.platform == "win32":
+        try:
+            result = subprocess.run(
+                ["tasklist", "/FO", "CSV", "/NH"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode != 0:
+                return None
+            needle = name.lower()
+            return sum(
+                1 for line in result.stdout.splitlines()
+                if needle in line.lower()
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return None
+    else:
+        try:
+            result = subprocess.run(
+                ["pgrep", "-c", "-f", name],
+                capture_output=True, text=True, timeout=5,
+            )
+            return int(result.stdout.strip()) if result.returncode == 0 else 0
+        except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
+            return None
 
 
 def _count_zombie_state_processes() -> int:
