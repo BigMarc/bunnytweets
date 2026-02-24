@@ -515,9 +515,9 @@ class Application:
         # Set up each account (parallel – browser starts are I/O-bound)
         from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
 
-        setup_timeout = 180  # seconds — hard cap on total account setup time
+        setup_timeout = 600  # seconds — hard cap on total account setup time
         active_accounts = []
-        pool = ThreadPoolExecutor(max_workers=min(len(accounts), 5))
+        pool = ThreadPoolExecutor(max_workers=min(len(accounts), 15))
         future_to_acct = {
             pool.submit(self.setup_account, acct): acct for acct in accounts
         }
