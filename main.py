@@ -571,12 +571,25 @@ class Application:
         # reset transient account statuses from previous (possibly crashed) run.
         self._preflight_cleanup(accounts)
 
+        # Start the scheduler and queue immediately so the engine is
+        # responsive while profiles are still opening.
+        self.queue.start()
+        self.job_manager.start()
+        self.job_manager.add_health_check(
+            dispatch_health_check, interval_minutes=5
+        )
+        self.job_manager.add_cta_check_job(
+            dispatch_cta_check, interval_minutes=5
+        )
+        self._ready.set()
+        logger.info("Engine ready — setting up accounts")
+
         # Set up all accounts concurrently — open every profile at once.
+        # Accounts get scheduled as they come online.
         from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
 
         setup_timeout = 600  # seconds — hard cap on total account setup time
         active_accounts = []
-        scheduler_started = False
         pool = ThreadPoolExecutor(max_workers=len(accounts))
         future_to_acct = {
             pool.submit(self.setup_account, acct): acct for acct in accounts
@@ -588,21 +601,6 @@ class Application:
                     if future.result():
                         self.schedule_account(acct)
                         active_accounts.append(acct)
-
-                        # Start scheduler/queue as soon as the first account
-                        # succeeds — remaining accounts continue in background.
-                        if not scheduler_started:
-                            self.queue.start()
-                            self.job_manager.start()
-                            self.job_manager.add_health_check(
-                                dispatch_health_check, interval_minutes=5
-                            )
-                            self.job_manager.add_cta_check_job(
-                                dispatch_cta_check, interval_minutes=5
-                            )
-                            self._ready.set()
-                            scheduler_started = True
-                            logger.info("Engine ready — first account active")
                     else:
                         self._failed_accounts.append(acct)
                 except Exception as exc:
@@ -617,8 +615,6 @@ class Application:
                     self._failed_accounts.append(acct)
                     fut.cancel()
         finally:
-            # Give timed-out threads a grace period to finish cleanly,
-            # but don't block forever if they're stuck.
             pool.shutdown(wait=True, cancel_futures=True)
 
         if not active_accounts:
