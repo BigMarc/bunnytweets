@@ -163,11 +163,9 @@ class Application:
         # Discord notifier
         self.notifier = DiscordNotifier.from_config(self.config.discord)
 
-        # Scheduler & Queue (persist jobs to SQLite so they survive restarts)
-        db_path = str(self.config.resolve_path(self.config.database_path))
+        # Scheduler & Queue
         self.job_manager = JobManager(
             timezone=self.config.timezone,
-            db_url=f"sqlite:///{db_path}",
         )
         self.queue = QueueHandler(
             error_handling=self.config.error_handling,
