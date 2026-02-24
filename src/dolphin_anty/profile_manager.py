@@ -36,8 +36,18 @@ class ProfileManager:
         Chrome DevTools debug port. Selenium then attaches to that port.
         """
         if profile_id in self._drivers:
-            logger.debug(f"Driver already exists for profile {profile_id}, reusing")
-            return self._drivers[profile_id]
+            existing = self._drivers[profile_id]
+            try:
+                existing.title  # quick liveness check
+                logger.debug(f"Driver already exists for profile {profile_id}, reusing")
+                return existing
+            except Exception:
+                logger.warning(f"Stale driver for profile {profile_id}, replacing")
+                try:
+                    existing.quit()
+                except Exception:
+                    pass
+                del self._drivers[profile_id]
 
         headless = self.browser_settings.get("headless", False)
         result = self.client.start_profile(profile_id, headless=headless)
@@ -54,27 +64,36 @@ class ProfileManager:
             f"Profile {profile_id} started – debug port={port}, ws={ws_endpoint}"
         )
 
-        # Resolve a ChromeDriver matching the browser's Chrome version
-        chromedriver_path, chrome_major = resolve_chromedriver(port)
+        # Resolve a ChromeDriver matching the browser's Chrome version.
+        # If anything fails after start_profile(), stop the orphaned profile.
+        try:
+            chromedriver_path, chrome_major = resolve_chromedriver(port)
 
-        options = ChromeOptions()
-        options.add_experimental_option("debuggerAddress", f"127.0.0.1:{port}")
+            options = ChromeOptions()
+            options.add_experimental_option("debuggerAddress", f"127.0.0.1:{port}")
 
-        if chrome_major:
-            options.browser_version = chrome_major
+            if chrome_major:
+                options.browser_version = chrome_major
 
-        service_kwargs: dict = {}
-        if chromedriver_path:
-            service_kwargs["executable_path"] = chromedriver_path
-            logger.debug(f"Using resolved ChromeDriver: {chromedriver_path}")
-        service = ChromeService(**service_kwargs)
+            service_kwargs: dict = {}
+            if chromedriver_path:
+                service_kwargs["executable_path"] = chromedriver_path
+                logger.debug(f"Using resolved ChromeDriver: {chromedriver_path}")
+            service = ChromeService(**service_kwargs)
 
-        implicit_wait = self.browser_settings.get("implicit_wait", 10)
-        page_load_timeout = self.browser_settings.get("page_load_timeout", 30)
+            implicit_wait = self.browser_settings.get("implicit_wait", 10)
+            page_load_timeout = self.browser_settings.get("page_load_timeout", 30)
 
-        driver = webdriver.Chrome(options=options, service=service)
-        driver.implicitly_wait(implicit_wait)
-        driver.set_page_load_timeout(page_load_timeout)
+            driver = webdriver.Chrome(options=options, service=service)
+            driver.implicitly_wait(implicit_wait)
+            driver.set_page_load_timeout(page_load_timeout)
+        except Exception:
+            # Profile is running but Selenium couldn't attach — clean up
+            try:
+                self.client.stop_profile(profile_id)
+            except Exception as stop_exc:
+                logger.warning(f"Cleanup: failed to stop profile {profile_id}: {stop_exc}")
+            raise
 
         self._drivers[profile_id] = driver
         return driver

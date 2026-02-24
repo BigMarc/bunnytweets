@@ -33,6 +33,7 @@ class Task:
     error: Exception | None = None
     retry_count: int = 0
     max_retries: int = 3
+    timeout_seconds: int = 600
 
 
 class QueueHandler:
@@ -52,6 +53,7 @@ class QueueHandler:
         self._running: dict[str, Future] = {}
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
+        self._task_done = threading.Condition(self._lock)
         self._worker_thread: threading.Thread | None = None
         self._error_handling = error_handling or {}
         self._db = db
@@ -116,17 +118,17 @@ class QueueHandler:
             self._worker_thread.join(timeout=10)
         logger.info("Queue handler stopped")
 
+    def _on_task_complete(self, account_name: str, future: Future) -> None:
+        """Callback fired when a Future finishes — signals the worker loop."""
+        with self._task_done:
+            self._running.pop(account_name, None)
+            self._task_done.notify()
+
     def _worker_loop(self) -> None:
         while not self._stop_event.is_set():
-            # Clean up completed futures
-            with self._lock:
-                done = [k for k, v in self._running.items() if v.done()]
-                for k in done:
-                    self._running.pop(k)
-
             # Pull next task from queue
             try:
-                task = self._queue.get(timeout=1)
+                task = self._queue.get(timeout=5)
             except Empty:
                 continue
 
@@ -143,17 +145,34 @@ class QueueHandler:
                         f"Account {task.account_name} is busy — "
                         f"re-queuing {task.task_type} task"
                     )
-                    self._queue.put(task)
+                    # Delay re-queue to avoid tight spin
+                    threading.Thread(
+                        target=self._delayed_requeue, args=(task, 0.5),
+                        daemon=True,
+                    ).start()
                     continue
 
                 task.status = TaskStatus.RUNNING
                 future = self.executor.submit(self._run_task, task)
                 self._running[task.account_name] = future
+                future.add_done_callback(
+                    lambda f, name=task.account_name: self._on_task_complete(name, f)
+                )
 
     def _run_task(self, task: Task) -> Any:
         try:
             start = _time.monotonic()
-            result = task.callback(*task.args, **task.kwargs)
+            # Enforce per-task timeout using a one-off thread pool
+            from concurrent.futures import ThreadPoolExecutor as _TPE, TimeoutError as _TE
+            with _TPE(max_workers=1) as _pool:
+                _fut = _pool.submit(task.callback, *task.args, **task.kwargs)
+                try:
+                    result = _fut.result(timeout=task.timeout_seconds)
+                except _TE:
+                    raise TimeoutError(
+                        f"Task {task.task_type} for {task.account_name} "
+                        f"timed out after {task.timeout_seconds}s"
+                    )
             duration = _time.monotonic() - start
             task.status = TaskStatus.COMPLETED
             task.result = result
@@ -171,7 +190,8 @@ class QueueHandler:
                 task.retry_count += 1
                 task.status = TaskStatus.QUEUED
                 backoff = self._error_handling.get("retry_backoff", 5)
-                delay = backoff * (2 ** (task.retry_count - 1))
+                max_backoff = self._error_handling.get("max_backoff", 300)
+                delay = min(backoff * (2 ** (task.retry_count - 1)), max_backoff)
                 logger.info(
                     f"Retrying {task.task_type} for {task.account_name} "
                     f"in {delay}s (attempt {task.retry_count + 1}/{task.max_retries})"

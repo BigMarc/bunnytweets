@@ -74,6 +74,12 @@ def dispatch_cta_check() -> None:
         _app_ref._check_cta_pending()
 
 
+def dispatch_setup_retry() -> None:
+    """Module-level callback to retry failed account setups."""
+    if _app_ref is not None:
+        _app_ref._retry_failed_accounts()
+
+
 class Application:
     """Main application that wires all components together."""
 
@@ -155,6 +161,11 @@ class Application:
         self._retweeters: dict = {}
         self._simulators: dict = {}
         self._repliers: dict = {}
+
+        # Track accounts that failed setup for periodic retry
+        self._failed_accounts: list[dict] = []
+        self._setup_retry_counts: dict[str, int] = {}
+        self._max_setup_retries = 3
 
         self._shutdown = False
         self._ready = threading.Event()
@@ -395,6 +406,30 @@ class Application:
             self.db.update_account_status(name, cta_pending=0)
             self._enqueue_task(name, "cta_comment", poster.run_cta_comment)
 
+    def _retry_failed_accounts(self) -> None:
+        """Periodically retry accounts that failed initial setup."""
+        still_failed = []
+        for acct in self._failed_accounts:
+            name = acct["name"]
+            attempts = self._setup_retry_counts.get(name, 0)
+            if attempts >= self._max_setup_retries:
+                logger.warning(f"[{name}] Giving up setup retry after {attempts} attempts")
+                continue
+            self._setup_retry_counts[name] = attempts + 1
+            logger.info(f"[{name}] Retrying setup (attempt {attempts + 1}/{self._max_setup_retries})")
+            if self.setup_account(acct):
+                self.schedule_account(acct)
+                logger.info(f"[{name}] Setup retry succeeded")
+            else:
+                still_failed.append(acct)
+        self._failed_accounts = still_failed
+        if not self._failed_accounts:
+            # All recovered or gave up — remove the retry job
+            try:
+                self.job_manager.scheduler.remove_job("setup_retry")
+            except Exception:
+                pass
+
     # ------------------------------------------------------------------
     # Run
     # ------------------------------------------------------------------
@@ -421,12 +456,25 @@ class Application:
                 "The local API may reject requests."
             )
 
-        # Set up each account
+        # Set up each account (parallel – browser starts are I/O-bound)
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
         active_accounts = []
-        for acct in accounts:
-            if self.setup_account(acct):
-                self.schedule_account(acct)
-                active_accounts.append(acct)
+        with ThreadPoolExecutor(max_workers=min(len(accounts), 5)) as pool:
+            future_to_acct = {
+                pool.submit(self.setup_account, acct): acct for acct in accounts
+            }
+            for future in as_completed(future_to_acct):
+                acct = future_to_acct[future]
+                try:
+                    if future.result():
+                        self.schedule_account(acct)
+                        active_accounts.append(acct)
+                    else:
+                        self._failed_accounts.append(acct)
+                except Exception as exc:
+                    logger.error(f"[{acct['name']}] Setup failed: {exc}")
+                    self._failed_accounts.append(acct)
 
         if not active_accounts:
             logger.error("No accounts could be initialised. Exiting.")
@@ -440,6 +488,21 @@ class Application:
 
         # CTA comment check (looks for pending CTAs every 5 min)
         self.job_manager.add_cta_check_job(dispatch_cta_check, interval_minutes=5)
+
+        # Retry failed account setups every 5 min (up to max_setup_retries)
+        if self._failed_accounts:
+            logger.info(
+                f"{len(self._failed_accounts)} account(s) failed setup — "
+                f"will retry every 5 minutes (max {self._max_setup_retries} attempts)"
+            )
+            self.job_manager.scheduler.add_job(
+                dispatch_setup_retry,
+                trigger="interval",
+                minutes=5,
+                id="setup_retry",
+                replace_existing=True,
+                name="Retry failed account setups",
+            )
 
         # Start scheduler & queue
         self.queue.start()

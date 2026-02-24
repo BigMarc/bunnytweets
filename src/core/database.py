@@ -148,7 +148,20 @@ class Database:
     def __init__(self, db_path: str = "data/database/automation.db"):
         path = Path(db_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        self.engine = create_engine(f"sqlite:///{path}", echo=False)
+        self.engine = create_engine(
+            f"sqlite:///{path}",
+            echo=False,
+            connect_args={"timeout": 30},
+        )
+        # Enable WAL mode for better concurrent read/write performance
+        from sqlalchemy import event
+
+        @event.listens_for(self.engine, "connect")
+        def _set_sqlite_pragma(dbapi_conn, connection_record):
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=5000")
+            cursor.close()
         self._migrate_retweets_table()
         Base.metadata.create_all(self.engine)
         self._migrate_add_columns()
