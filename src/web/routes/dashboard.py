@@ -10,6 +10,7 @@ bp = Blueprint("dashboard", __name__)
 @bp.route("/")
 def index():
     state = current_app.config["APP_STATE"]
+    state.reload_config()
     accounts = state.config.accounts
     account_data = []
 
