@@ -41,14 +41,25 @@ class AppState:
     @property
     def engine_status(self) -> str:
         with self._lock:
-            # Self-heal: if the Application signalled ready but the watcher
-            # thread missed it (race / timing), correct the status now.
+            # Self-heal: detect _ready signal that the watcher may have missed
+            # (race condition, premature timeout, etc.)
             if (
-                self._engine_status == "starting"
+                self._engine_status in ("starting", "stopped")
                 and self._application is not None
                 and self._application._ready.is_set()
             ):
                 self._engine_status = "running"
+                self._startup_error = None
+
+            # Detect dead engine thread — status should be "stopped"
+            if (
+                self._engine_status in ("starting", "running")
+                and self._engine_thread is not None
+                and not self._engine_thread.is_alive()
+                and self._application is None
+            ):
+                self._engine_status = "stopped"
+
             return self._engine_status
 
     @property
@@ -62,6 +73,12 @@ class AppState:
                 return False, "Engine is already running"
             if self._engine_status == "starting":
                 return False, "Engine is still starting up"
+            # Guard: don't spawn a second engine thread if the old one is
+            # still alive (e.g. premature watcher timeout set status to
+            # "stopped" while app.run() was still executing).
+            if self._engine_thread is not None and self._engine_thread.is_alive():
+                if self._application is not None:
+                    return False, "Engine thread is still active"
             self._engine_status = "starting"
             self._startup_error = None
 
@@ -76,35 +93,45 @@ class AppState:
                 with self._lock:
                     self._application = app
 
-                # Watch for the Application._ready event so we only mark
-                # "running" after accounts are set up and the scheduler starts.
+                # Watch for the Application._ready event.  Polls every 2s
+                # instead of a single blocking wait so we can also detect
+                # early thread death (engine crashed before _ready was set).
                 def _watch_ready():
-                    ready = app._ready.wait(timeout=300)
+                    deadline = time.monotonic() + 660  # setup_timeout(600) + 60s buffer
+                    while time.monotonic() < deadline:
+                        if app._ready.wait(timeout=2):
+                            with self._lock:
+                                if self._engine_status == "starting":
+                                    self._engine_status = "running"
+                            return
+                        # Early exit: if the engine thread already died, stop waiting.
+                        with self._lock:
+                            if self._engine_status == "stopped":
+                                return
+                    # Timed out — only set error if no other error was recorded.
                     with self._lock:
                         if self._engine_status == "starting":
-                            if ready:
-                                self._engine_status = "running"
-                            else:
-                                # Timed out waiting — startup stalled
-                                self._engine_status = "stopped"
-                                self._startup_error = "Engine startup timed out (300s)"
+                            self._engine_status = "stopped"
+                            if not self._startup_error:
+                                self._startup_error = (
+                                    "Engine startup timed out (660s). "
+                                    "Check logs for details."
+                                )
 
                 watcher = threading.Thread(
                     target=_watch_ready, daemon=True, name="engine-ready-watcher"
                 )
                 watcher.start()
 
-                # This blocks until shutdown (or raises RuntimeError on failure)
+                # This blocks until shutdown (or raises on failure)
                 app.run()
-            except RuntimeError as e:
-                logger.error(f"Engine startup failed: {e}")
+            except Exception as e:
+                is_runtime = isinstance(e, RuntimeError)
+                label = "Engine startup failed" if is_runtime else "Engine error"
+                logger.error(f"{label}: {e}")
                 with self._lock:
                     self._startup_error = str(e)
                     self._engine_status = "stopped"
-            except Exception as e:
-                logger.error(f"Engine error: {e}")
-                with self._lock:
-                    self._startup_error = str(e)
             finally:
                 with self._lock:
                     self._application = None
