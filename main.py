@@ -314,6 +314,60 @@ class Application:
         return automation, poster, retweeter, simulator, replier
 
     # ------------------------------------------------------------------
+    # Pre-flight cleanup
+    # ------------------------------------------------------------------
+    def _preflight_cleanup(self, accounts: list[dict]) -> None:
+        """Ensure a clean slate before initialising accounts.
+
+        After a crash, SIGKILL, or unclean restart, GoLogin may still have
+        orphaned browser profiles running from the previous session.  This
+        routine:
+
+        1. Stops all configured GoLogin/Dolphin profiles (even if not in
+           ProfileManager._drivers, which is in-memory and lost on restart).
+        2. Clears stale downloaded media files from data/downloads/.
+        3. Resets any accounts stuck in a transient status (running/browsing)
+           back to idle so the dashboard doesn't show stale state.
+        """
+        logger.info("Pre-flight cleanup: ensuring clean slate before startup")
+
+        # 1. Stop all configured browser profiles
+        profile_ids = []
+        for acct in accounts:
+            platform_cfg = self._get_platform_cfg(acct)
+            pid = platform_cfg.get("profile_id") or platform_cfg.get("dolphin_profile_id")
+            if pid:
+                profile_ids.append(pid)
+        self.profile_manager.cleanup_all_profiles(profile_ids)
+
+        # 2. Clear stale downloads
+        gd_cfg = self.config.google_drive
+        download_dir = Path(
+            str(self.config.resolve_path(gd_cfg.get("download_dir", "data/downloads")))
+        )
+        if download_dir.is_dir():
+            stale_count = 0
+            for f in download_dir.iterdir():
+                if f.is_file():
+                    try:
+                        f.unlink()
+                        stale_count += 1
+                    except Exception:
+                        pass
+            if stale_count:
+                logger.info(f"Pre-flight cleanup: removed {stale_count} stale download(s)")
+
+        # 3. Reset accounts stuck in transient states
+        for acct in accounts:
+            name = acct.get("name", "unknown")
+            status_obj = self.db.get_account_status(name)
+            if status_obj and status_obj.status in ("running", "browsing"):
+                self.db.update_account_status(name, status="idle", error_message=None)
+                logger.debug(f"Pre-flight cleanup: reset {name} from '{status_obj.status}' to 'idle'")
+
+        logger.info("Pre-flight cleanup complete")
+
+    # ------------------------------------------------------------------
     # Setup
     # ------------------------------------------------------------------
     def setup_account(self, acct: dict) -> bool:
@@ -511,6 +565,10 @@ class Application:
                 f"No {self.provider_name} API token configured. "
                 "The local API may reject requests."
             )
+
+        # Pre-flight cleanup: stop orphaned profiles, clear stale downloads,
+        # reset transient account statuses from previous (possibly crashed) run.
+        self._preflight_cleanup(accounts)
 
         # Set up each account (parallel – browser starts are I/O-bound)
         from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout

@@ -140,3 +140,23 @@ class ProfileManager:
         """Stop all running browser profiles."""
         for pid in list(self._drivers.keys()):
             self.stop_browser(pid)
+
+    def cleanup_all_profiles(self, profile_ids: list[str]) -> None:
+        """Pre-flight cleanup: stop all configured profiles regardless of _drivers state.
+
+        After a crash or SIGKILL, _drivers is empty but GoLogin may still have
+        orphaned browser processes running from the previous session.  This method
+        sends a stop request for every configured profile ID to ensure a clean slate.
+        """
+        if not profile_ids:
+            return
+        logger.info(f"Pre-flight cleanup: stopping {len(profile_ids)} configured profile(s)")
+        for pid in profile_ids:
+            try:
+                self.client.stop_profile(pid)
+                logger.debug(f"Pre-flight: stopped profile {pid}")
+            except Exception as exc:
+                # Expected for profiles that aren't running — not an error
+                logger.debug(f"Pre-flight: profile {pid} stop skipped ({exc})")
+        # Clear any stale driver references
+        self._drivers.clear()
