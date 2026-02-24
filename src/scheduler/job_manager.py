@@ -272,6 +272,15 @@ class JobManager:
     # Lifecycle
     # ------------------------------------------------------------------
     def start(self) -> None:
+        # Flush stale persisted jobs from a previous run.  All current jobs
+        # have already been added (as pending) by schedule_account(), so we
+        # only need to clear the on-disk store to avoid deserialization errors
+        # when callable references have changed between code versions.
+        for alias, store in list(self.scheduler._jobstores.items()):
+            try:
+                store.remove_all_jobs()
+            except Exception:
+                pass
         self.scheduler.start()
         logger.info("Scheduler started")
 
