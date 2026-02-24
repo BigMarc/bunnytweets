@@ -3,6 +3,8 @@ from pathlib import Path
 
 from loguru import logger
 
+_logging_configured = False
+
 
 def setup_logging(
     level: str = "INFO",
@@ -11,7 +13,16 @@ def setup_logging(
     log_dir: str = "data/logs",
     quiet: bool = False,
 ) -> None:
-    """Configure loguru for the application."""
+    """Configure loguru for the application.
+
+    Safe to call from a background thread — only the first invocation
+    removes and re-adds handlers; subsequent calls are no-ops.
+    """
+    global _logging_configured
+    if _logging_configured:
+        return
+    _logging_configured = True
+
     log_path = Path(log_dir)
     log_path.mkdir(parents=True, exist_ok=True)
 
