@@ -1,0 +1,666 @@
+# BunnyTweets - Account Configuration
+# Generated from CSV Import
+accounts:
+  # --- Agency Acc 1 ---
+  - name: "Agency Acc 1"
+    platform: "twitter"
+    content_rating: "sfw"
+    enabled: true
+    twitter:
+      username: "@HoppyBunnyGirls"
+      profile_id: "698d9cc5ce2224dd4268f12c"
+    google_drive:
+      folder_id: "1gqfOuCkVRr6Is1HBOq-8o01D2q0-a6Em"
+      check_interval_minutes: 15
+      file_types: ["jpg", "png", "gif", "webp", "mp4", "mov", "txt"]
+    posting:
+      enabled: true
+      schedule:
+        - time: "09:00"
+        - time: "15:00"
+        - time: "20:00"
+      default_text: ""
+      title_categories: ["Global"]
+    retweeting:
+      enabled: true
+      daily_limit: 15
+      target_profiles: []
+      time_windows:
+        - start: "09:00"
+          end: "12:00"
+        - start: "14:00"
+          end: "17:00"
+        - start: "19:00"
+          end: "22:00"
+      strategy: "latest"
+    human_simulation:
+      enabled: true
+      session_duration_min: 5
+      session_duration_max: 60
+      daily_sessions_limit: 2
+      daily_likes_limit: 15
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:00"
+    reply_to_replies:
+      enabled: false
+      daily_limit: 10
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:00"
+  # --- Agency Acc 2 ---
+  - name: "Agency Acc 2"
+    platform: "twitter"
+    content_rating: "sfw"
+    enabled: true
+    twitter:
+      username: "@HoppyBunnyToks"
+      profile_id: "698d9cc5ce2224dd4268f11b"
+    google_drive:
+      folder_id: "11_INVqs3t5KI7ExeYZhkeWH-Z5lIX7G1"
+      check_interval_minutes: 30
+      file_types: ["jpg", "png", "gif", "webp", "mp4", "mov", "txt"]
+    posting:
+      enabled: true
+      schedule:
+        - time: "09:00"
+        - time: "15:00"
+        - time: "20:01"
+      default_text: ""
+      title_categories: ["Global"]
+    retweeting:
+      enabled: true
+      daily_limit: 15
+      target_profiles: []
+      time_windows:
+        - start: "09:00"
+          end: "12:00"
+        - start: "14:00"
+          end: "17:00"
+        - start: "19:00"
+          end: "22:01"
+      strategy: "latest"
+    human_simulation:
+      enabled: true
+      session_duration_min: 5
+      session_duration_max: 60
+      daily_sessions_limit: 2
+      daily_likes_limit: 15
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:01"
+    reply_to_replies:
+      enabled: false
+      daily_limit: 10
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:01"
+  # --- Agency Acc 3 ---
+  - name: "Agency Acc 3"
+    platform: "twitter"
+    content_rating: "nsfw"
+    enabled: true
+    twitter:
+      username: "@Dirtybunniyporn"
+      profile_id: "698d9cc5ce2224dd4268f119"
+    google_drive:
+      folder_id: "1hJ98O2Vt2gPJ6_a9F7CaFZq_6Fk7Qm25"
+      check_interval_minutes: 30
+      file_types: ["jpg", "png", "gif", "webp", "mp4", "mov", "txt"]
+    posting:
+      enabled: true
+      schedule:
+        - time: "09:00"
+        - time: "15:00"
+        - time: "20:02"
+      default_text: ""
+      title_categories: ["Global"]
+    retweeting:
+      enabled: true
+      daily_limit: 15
+      target_profiles: []
+      time_windows:
+        - start: "09:00"
+          end: "12:00"
+        - start: "14:00"
+          end: "17:00"
+        - start: "19:00"
+          end: "22:02"
+      strategy: "latest"
+    human_simulation:
+      enabled: true
+      session_duration_min: 5
+      session_duration_max: 60
+      daily_sessions_limit: 2
+      daily_likes_limit: 15
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:02"
+    reply_to_replies:
+      enabled: false
+      daily_limit: 10
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:02"
+  # --- Emma NSFW ---
+  - name: "Emma NSFW"
+    platform: "twitter"
+    content_rating: "nsfw"
+    enabled: true
+    twitter:
+      username: "@foxxi_bnyy"
+      profile_id: "699052abb89a1a3223c6ad45"
+    google_drive:
+      folder_id: "1r5EvaZNi5kKnju-X08ZLqqVH28-xjojw"
+      check_interval_minutes: 30
+      file_types: ["jpg", "png", "gif", "webp", "mp4", "mov", "txt"]
+    posting:
+      enabled: true
+      schedule:
+        - time: "09:00"
+        - time: "15:00"
+        - time: "20:03"
+      default_text: ""
+      title_categories: ["Global"]
+    retweeting:
+      enabled: true
+      daily_limit: 15
+      target_profiles: []
+      time_windows:
+        - start: "09:00"
+          end: "12:00"
+        - start: "14:00"
+          end: "17:00"
+        - start: "19:00"
+          end: "22:03"
+      strategy: "latest"
+    human_simulation:
+      enabled: true
+      session_duration_min: 5
+      session_duration_max: 60
+      daily_sessions_limit: 2
+      daily_likes_limit: 15
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:03"
+    reply_to_replies:
+      enabled: false
+      daily_limit: 10
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:03"
+  # --- Flora NSFW ---
+  - name: "Flora NSFW"
+    platform: "twitter"
+    content_rating: "nsfw"
+    enabled: true
+    twitter:
+      username: "@yourgirl_flora"
+      profile_id: "699052abb89a1a3223c6ad2e"
+    google_drive:
+      folder_id: "1lixz3JEVOhd69GlRFEwx9R1u2Y5o8PNO"
+      check_interval_minutes: 30
+      file_types: ["jpg", "png", "gif", "webp", "mp4", "mov", "txt"]
+    posting:
+      enabled: true
+      schedule:
+        - time: "09:00"
+        - time: "15:00"
+        - time: "20:04"
+      default_text: ""
+      title_categories: ["Global"]
+    retweeting:
+      enabled: true
+      daily_limit: 15
+      target_profiles: []
+      time_windows:
+        - start: "09:00"
+          end: "12:00"
+        - start: "14:00"
+          end: "17:00"
+        - start: "19:00"
+          end: "22:04"
+      strategy: "latest"
+    human_simulation:
+      enabled: true
+      session_duration_min: 5
+      session_duration_max: 60
+      daily_sessions_limit: 2
+      daily_likes_limit: 15
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:04"
+    reply_to_replies:
+      enabled: false
+      daily_limit: 10
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:04"
+  # --- Anna NSFW ---
+  - name: "Anna NSFW"
+    platform: "twitter"
+    content_rating: "nsfw"
+    enabled: true
+    twitter:
+      username: "@leahxtv"
+      profile_id: "699052abb89a1a3223c6ad2e"
+    google_drive:
+      folder_id: "1zym22N95Aihh85TgA0gTH7DkQOMGoGS2"
+      check_interval_minutes: 30
+      file_types: ["jpg", "png", "gif", "webp", "mp4", "mov", "txt"]
+    posting:
+      enabled: true
+      schedule:
+        - time: "09:00"
+        - time: "15:00"
+        - time: "20:05"
+      default_text: ""
+      title_categories: ["Global"]
+    retweeting:
+      enabled: true
+      daily_limit: 15
+      target_profiles: []
+      time_windows:
+        - start: "09:00"
+          end: "12:00"
+        - start: "14:00"
+          end: "17:00"
+        - start: "19:00"
+          end: "22:05"
+      strategy: "latest"
+    human_simulation:
+      enabled: true
+      session_duration_min: 5
+      session_duration_max: 60
+      daily_sessions_limit: 2
+      daily_likes_limit: 15
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:05"
+    reply_to_replies:
+      enabled: false
+      daily_limit: 10
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:05"
+  # --- Anna SFW ---
+  - name: "Anna SFW"
+    platform: "twitter"
+    content_rating: "sfw"
+    enabled: true
+    twitter:
+      username: "@whoterriii"
+      profile_id: "699052abb89a1a3223c6ad27"
+    google_drive:
+      folder_id: "1Pdmn9yMK4-FkkfIu6D8p1vOE40e9hENf"
+      check_interval_minutes: 30
+      file_types: ["jpg", "png", "gif", "webp", "mp4", "mov", "txt"]
+    posting:
+      enabled: true
+      schedule:
+        - time: "09:00"
+        - time: "15:00"
+        - time: "20:06"
+      default_text: ""
+      title_categories: ["Global"]
+    retweeting:
+      enabled: true
+      daily_limit: 15
+      target_profiles: []
+      time_windows:
+        - start: "09:00"
+          end: "12:00"
+        - start: "14:00"
+          end: "17:00"
+        - start: "19:00"
+          end: "22:06"
+      strategy: "latest"
+    human_simulation:
+      enabled: true
+      session_duration_min: 5
+      session_duration_max: 60
+      daily_sessions_limit: 2
+      daily_likes_limit: 15
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:06"
+    reply_to_replies:
+      enabled: false
+      daily_limit: 10
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:06"
+  # --- Aleks SFW ---
+  - name: "Aleks SFW"
+    platform: "twitter"
+    content_rating: "sfw"
+    enabled: true
+    twitter:
+      username: "@aleksbnyyy"
+      profile_id: "699052abb89a1a3223c6ad04"
+    google_drive:
+      folder_id: "1tevCDJ9cLyHKAkMvlFqHwsMFt55UcBkM"
+      check_interval_minutes: 30
+      file_types: ["jpg", "png", "gif", "webp", "mp4", "mov", "txt"]
+    posting:
+      enabled: true
+      schedule:
+        - time: "09:00"
+        - time: "15:00"
+        - time: "20:07"
+      default_text: ""
+      title_categories: ["Global"]
+    retweeting:
+      enabled: true
+      daily_limit: 15
+      target_profiles: []
+      time_windows:
+        - start: "09:00"
+          end: "12:00"
+        - start: "14:00"
+          end: "17:00"
+        - start: "19:00"
+          end: "22:07"
+      strategy: "latest"
+    human_simulation:
+      enabled: true
+      session_duration_min: 5
+      session_duration_max: 60
+      daily_sessions_limit: 2
+      daily_likes_limit: 15
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:07"
+    reply_to_replies:
+      enabled: false
+      daily_limit: 10
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:07"
+  # --- Aleks NSFW ---
+  - name: "Aleks NSFW"
+    platform: "twitter"
+    content_rating: "nsfw"
+    enabled: true
+    twitter:
+      username: "@codingleah"
+      profile_id: "699052abb89a1a3223c6ad1c"
+    google_drive:
+      folder_id: "1--fVDu8RSKLYEuZ3QfI6EaI3mu-lraLo"
+      check_interval_minutes: 30
+      file_types: ["jpg", "png", "gif", "webp", "mp4", "mov", "txt"]
+    posting:
+      enabled: true
+      schedule:
+        - time: "09:00"
+        - time: "15:00"
+        - time: "20:08"
+      default_text: ""
+      title_categories: ["Global"]
+    retweeting:
+      enabled: true
+      daily_limit: 15
+      target_profiles: []
+      time_windows:
+        - start: "09:00"
+          end: "12:00"
+        - start: "14:00"
+          end: "17:00"
+        - start: "19:00"
+          end: "22:08"
+      strategy: "latest"
+    human_simulation:
+      enabled: true
+      session_duration_min: 5
+      session_duration_max: 60
+      daily_sessions_limit: 2
+      daily_likes_limit: 15
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:08"
+    reply_to_replies:
+      enabled: false
+      daily_limit: 10
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:08"
+  # --- Kaylee SFW ---
+  - name: "Kaylee SFW"
+    platform: "twitter"
+    content_rating: "sfw"
+    enabled: true
+    twitter:
+      username: "@fairyxsofie"
+      profile_id: "699052abb89a1a3223c6acf4"
+    google_drive:
+      folder_id: "1sji95IghrFCDdyjpCbJ6kk5XxoShYd23"
+      check_interval_minutes: 30
+      file_types: ["jpg", "png", "gif", "webp", "mp4", "mov", "txt"]
+    posting:
+      enabled: true
+      schedule:
+        - time: "09:00"
+        - time: "15:00"
+        - time: "20:09"
+      default_text: ""
+      title_categories: ["Global"]
+    retweeting:
+      enabled: true
+      daily_limit: 15
+      target_profiles: []
+      time_windows:
+        - start: "09:00"
+          end: "12:00"
+        - start: "14:00"
+          end: "17:00"
+        - start: "19:00"
+          end: "22:09"
+      strategy: "latest"
+    human_simulation:
+      enabled: true
+      session_duration_min: 5
+      session_duration_max: 60
+      daily_sessions_limit: 2
+      daily_likes_limit: 15
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:09"
+    reply_to_replies:
+      enabled: false
+      daily_limit: 10
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:09"
+  # --- Kaylee NSFW ---
+  - name: "Kaylee NSFW"
+    platform: "twitter"
+    content_rating: "nsfw"
+    enabled: true
+    twitter:
+      username: "@yunasirenx"
+      profile_id: "699d4fc26b43b400e2c04f94"
+    google_drive:
+      folder_id: "1dXc6yxbaImfVXQFnBb-fyPpCUmkx97jy"
+      check_interval_minutes: 30
+      file_types: ["jpg", "png", "gif", "webp", "mp4", "mov", "txt"]
+    posting:
+      enabled: true
+      schedule:
+        - time: "09:00"
+        - time: "15:00"
+        - time: "20:09"
+      default_text: ""
+      title_categories: ["Global"]
+    retweeting:
+      enabled: true
+      daily_limit: 15
+      target_profiles: []
+      time_windows:
+        - start: "09:00"
+          end: "12:00"
+        - start: "14:00"
+          end: "17:00"
+        - start: "19:00"
+          end: "22:09"
+      strategy: "latest"
+    human_simulation:
+      enabled: true
+      session_duration_min: 5
+      session_duration_max: 60
+      daily_sessions_limit: 2
+      daily_likes_limit: 15
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:09"
+    reply_to_replies:
+      enabled: false
+      daily_limit: 10
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:09"
+  # --- Emma SFW ---
+  - name: "Emma SFW"
+    platform: "twitter"
+    content_rating: "sfw"
+    enabled: true
+    twitter:
+      username: "@annawastoday"
+      profile_id: "699052abb89a1a3223c6acee"
+    google_drive:
+      folder_id: "1kYapyA9Zre2VK4LitoXVzZCl6kR1m15e"
+      check_interval_minutes: 30
+      file_types: ["jpg", "png", "gif", "webp", "mp4", "mov", "txt"]
+    posting:
+      enabled: true
+      schedule:
+        - time: "09:00"
+        - time: "15:00"
+        - time: "20:10"
+      default_text: ""
+      title_categories: ["Global"]
+    retweeting:
+      enabled: true
+      daily_limit: 15
+      target_profiles: []
+      time_windows:
+        - start: "09:00"
+          end: "12:00"
+        - start: "14:00"
+          end: "17:00"
+        - start: "19:00"
+          end: "22:10"
+      strategy: "latest"
+    human_simulation:
+      enabled: true
+      session_duration_min: 5
+      session_duration_max: 60
+      daily_sessions_limit: 2
+      daily_likes_limit: 15
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:10"
+    reply_to_replies:
+      enabled: false
+      daily_limit: 10
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:10"
+  # --- Flora SFW ---
+  - name: "Flora SFW"
+    platform: "twitter"
+    content_rating: "sfw"
+    enabled: true
+    twitter:
+      username: "@brontesun"
+      profile_id: "699037b9b5f13e314512a990"
+    google_drive:
+      folder_id: "1zrT_UHUpGx7fqrzglvacr9_Ab1SDW-GL"
+      check_interval_minutes: 30
+      file_types: ["jpg", "png", "gif", "webp", "mp4", "mov", "txt"]
+    posting:
+      enabled: true
+      schedule:
+        - time: "09:00"
+        - time: "15:00"
+        - time: "20:11"
+      default_text: ""
+      title_categories: ["Global"]
+    retweeting:
+      enabled: true
+      daily_limit: 15
+      target_profiles: []
+      time_windows:
+        - start: "09:00"
+          end: "12:00"
+        - start: "14:00"
+          end: "17:00"
+        - start: "19:00"
+          end: "22:11"
+      strategy: "latest"
+    human_simulation:
+      enabled: true
+      session_duration_min: 5
+      session_duration_max: 60
+      daily_sessions_limit: 2
+      daily_likes_limit: 15
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:11"
+    reply_to_replies:
+      enabled: false
+      daily_limit: 10
+      time_windows:
+        - start: "08:00"
+          end: "12:00"
+        - start: "18:00"
+          end: "23:11"

@@ -717,6 +717,12 @@ def main():
         config = ConfigLoader()
         db = Database(str(config.resolve_path(config.database_path)))
         flask_app = create_app(config, db)
+
+        if args.quiet:
+            # Auto-start engine when --web --quiet used together
+            state = flask_app.config["APP_STATE"]
+            state.start_engine()
+
         print(f"\n  BunnyTweets Dashboard: http://localhost:{args.port}\n")
         flask_app.run(host="0.0.0.0", port=args.port, debug=False)
         return
