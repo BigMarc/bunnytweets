@@ -203,14 +203,16 @@ def _collect_account(provider_name: str) -> dict:
 # Google Drive credentials
 # ------------------------------------------------------------------
 def _setup_google_credentials() -> None:
-    """Guide user through setting up Google Drive OAuth credentials."""
+    """Guide user through setting up Google Drive service-account credentials."""
     print("  To get Google Drive credentials:")
     print("    1. Go to https://console.cloud.google.com/")
     print("    2. Create a project (or select an existing one)")
     print("    3. Enable the Google Drive API")
-    print("    4. Go to Credentials > Create Credentials > OAuth client ID")
-    print("    5. Choose 'Desktop app' as the application type")
-    print("    6. Download the JSON file\n")
+    print("    4. Go to Credentials > Create Credentials > Service Account")
+    print("    5. Give it a name, click Create and Continue, then Done")
+    print("    6. Click on the service account > Keys tab > Add Key > Create new key > JSON")
+    print("    7. Download the JSON file")
+    print("    8. Share your Google Drive folder(s) with the service account email\n")
 
     print("  You can either:")
     print("    [1] Paste the JSON content directly")
@@ -264,6 +266,14 @@ def _setup_google_credentials() -> None:
             return
 
     if creds_data:
+        if creds_data.get("type") != "service_account":
+            print("\n  WARNING: This does not look like a Service Account JSON file.")
+            print("  BunnyTweets expects a Service Account key (with \"type\": \"service_account\").")
+            print("  If you downloaded an OAuth client ID JSON, that will NOT work.")
+            print("  See the instructions above to create the correct credentials.")
+            if not _confirm("Save anyway?", default=False):
+                print("  Skipping credentials setup.")
+                return
         CREDENTIALS_DIR.mkdir(parents=True, exist_ok=True)
         with open(CREDENTIALS_PATH, "w", encoding="utf-8") as f:
             json.dump(creds_data, f, indent=2)
@@ -342,7 +352,7 @@ def run_setup() -> None:
     # Step 4: Google Drive credentials (optional)
     print("\n  -- Google Drive Integration (Optional) --")
     print("  Google Drive lets you post media by uploading files to a Drive folder.")
-    print("  You need a Google Cloud OAuth credentials JSON file for this.")
+    print("  You need a Google Cloud Service Account credentials JSON file for this.")
     print("  If you don't have one yet, you can skip this and set it up later.\n")
 
     if _confirm("Set up Google Drive credentials now?", default=False):

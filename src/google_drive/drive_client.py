@@ -7,8 +7,6 @@ from pathlib import Path
 from typing import Any
 
 from google.oauth2 import service_account
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.oauth2.credentials import Credentials as OAuthCredentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 from loguru import logger
@@ -38,7 +36,7 @@ EXTENSION_MAP = {
 
 
 class DriveClient:
-    """Google Drive API wrapper supporting service-account and OAuth desktop credentials."""
+    """Google Drive API wrapper using service-account credentials."""
 
     def __init__(self, credentials_file: str):
         creds = self._load_credentials(credentials_file)
@@ -46,46 +44,23 @@ class DriveClient:
 
     @staticmethod
     def _load_credentials(credentials_file: str):
-        """Auto-detect credential type (service account vs OAuth desktop) and load."""
+        """Load Google service-account credentials from a JSON key file."""
         creds_path = Path(credentials_file)
-        token_path = creds_path.with_name("drive_token.json")
 
         with open(creds_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        # Service account JSON has a "type" key
         if data.get("type") == "service_account":
             return service_account.Credentials.from_service_account_file(
                 credentials_file, scopes=SCOPES
             )
 
-        # OAuth desktop credentials have an "installed" or "web" key
-        if "installed" in data or "web" in data:
-            # Re-use saved token if it exists
-            if token_path.exists():
-                creds = OAuthCredentials.from_authorized_user_file(
-                    str(token_path), SCOPES
-                )
-                if creds and creds.valid:
-                    return creds
-                if creds and creds.expired and creds.refresh_token:
-                    from google.auth.transport.requests import Request
-                    creds.refresh(Request())
-                    token_path.write_text(creds.to_json(), encoding="utf-8")
-                    return creds
-
-            # No saved token — run the OAuth browser flow once
-            flow = InstalledAppFlow.from_client_secrets_file(
-                credentials_file, SCOPES
-            )
-            creds = flow.run_local_server(port=0)
-            token_path.write_text(creds.to_json(), encoding="utf-8")
-            logger.info(f"OAuth token saved to {token_path}")
-            return creds
-
         raise ValueError(
-            f"Unrecognised credentials format in {credentials_file}. "
-            "Expected a service-account JSON or an OAuth desktop-app JSON."
+            f"Expected a service-account JSON file (with '\"type\": \"service_account\"') "
+            f"but got a different format in {credentials_file}. "
+            f"If you downloaded an OAuth client ID JSON, that is the wrong type. "
+            f"Go to Google Cloud Console > IAM & Admin > Service Accounts, "
+            f"click your service account > Keys > Add Key > Create new key > JSON."
         )
 
     def _list_subfolder_ids(self, folder_id: str, page_size: int = 100, _depth: int = 10) -> list[str]:
