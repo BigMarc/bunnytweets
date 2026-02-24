@@ -209,7 +209,7 @@ class Application:
     # ------------------------------------------------------------------
     @staticmethod
     def _get_platform(acct: dict) -> str:
-        """Return the platform for an account config ('twitter' or 'threads')."""
+        """Return the platform for an account config ('twitter', 'threads', or 'redgifs')."""
         return acct.get("platform", "twitter")
 
     @staticmethod
@@ -250,6 +250,23 @@ class Application:
             replier = ThreadsReplier(
                 automation, self.db, name, acct, notifier=self.notifier
             )
+        elif platform == "redgifs":
+            from src.platforms.redgifs.automation import RedGifsAutomation
+            from src.platforms.redgifs.poster import RedGifsPoster
+            from src.platforms.redgifs.human_simulator import RedGifsHumanSimulator
+
+            automation = RedGifsAutomation(driver, self.config.delays)
+            poster = (
+                RedGifsPoster(
+                    automation, self.file_monitor, self.db, name, acct,
+                    notifier=self.notifier,
+                )
+                if self.file_monitor
+                else None
+            )
+            retweeter = None   # RedGifs has no repost feature
+            simulator = RedGifsHumanSimulator(automation, self.db, name, acct)
+            replier = None     # RedGifs has no reply feature
         else:
             # Default: Twitter
             from src.twitter.automation import TwitterAutomation
@@ -304,7 +321,8 @@ class Application:
         )
 
         # Check login state – profiles should already be logged in
-        platform_label = "Threads" if platform == "threads" else "Twitter"
+        platform_labels = {"threads": "Threads", "redgifs": "RedGifs"}
+        platform_label = platform_labels.get(platform, "Twitter")
         if not automation.is_logged_in():
             logger.warning(
                 f"[{name}] Browser is NOT logged in to {platform_label}. "
@@ -326,9 +344,11 @@ class Application:
         self._automations[name] = automation
         if poster:
             self._posters[name] = poster
-        self._retweeters[name] = retweeter
+        if retweeter is not None:
+            self._retweeters[name] = retweeter
         self._simulators[name] = simulator
-        self._repliers[name] = replier
+        if replier is not None:
+            self._repliers[name] = replier
 
         self.db.update_account_status(name, status="idle", error_message=None)
         logger.info(f"[{name}] {platform_label} account set up successfully")
@@ -403,6 +423,8 @@ class Application:
     def _check_cta_pending(self) -> None:
         """Check all accounts for pending CTA comments (posted >55 min ago)."""
         for name, poster in list(self._posters.items()):
+            if not hasattr(poster, "run_cta_comment"):
+                continue
             status = self.db.get_account_status(name)
             if not status or not status.cta_pending:
                 continue
@@ -595,7 +617,8 @@ class Application:
 
         platform_cfg = self._get_platform_cfg(acct)
         profile_id = platform_cfg.get("profile_id") or platform_cfg.get("dolphin_profile_id")
-        platform_label = "Threads" if self._get_platform(acct) == "threads" else "Twitter"
+        platform_labels = {"threads": "Threads", "redgifs": "RedGifs"}
+        platform_label = platform_labels.get(self._get_platform(acct), "Twitter")
 
         logger.info(f"[{name}] Attempting auto-recovery — restarting browser...")
         try:
@@ -624,9 +647,11 @@ class Application:
 
         if poster:
             self._posters[name] = poster
-        self._retweeters[name] = retweeter
+        if retweeter is not None:
+            self._retweeters[name] = retweeter
         self._simulators[name] = simulator
-        self._repliers[name] = replier
+        if replier is not None:
+            self._repliers[name] = replier
 
         self.db.update_account_status(name, status="idle", error_message=None)
         logger.info(f"[{name}] Auto-recovery successful — browser restarted")
@@ -650,12 +675,15 @@ class Application:
             platform = self._get_platform(acct)
             status_obj = self.db.get_account_status(name)
             status = status_obj.status if status_obj else "unknown"
-            rt_today = self.db.get_retweets_today(name)
-            if platform == "threads":
-                rt_limit = acct.get("reposting", {}).get("max_per_day", 5)
+            if platform == "redgifs":
+                print(f"  [{name}] platform={platform}  status={status}")
             else:
-                rt_limit = acct.get("retweeting", {}).get("daily_limit", 3)
-            print(f"  [{name}] platform={platform}  status={status}  retweets={rt_today}/{rt_limit}")
+                rt_today = self.db.get_retweets_today(name)
+                if platform == "threads":
+                    rt_limit = acct.get("reposting", {}).get("max_per_day", 5)
+                else:
+                    rt_limit = acct.get("retweeting", {}).get("daily_limit", 3)
+                print(f"  [{name}] platform={platform}  status={status}  retweets={rt_today}/{rt_limit}")
         print()
         jobs = self.job_manager.get_jobs_summary()
         print(f"  Scheduled jobs: {len(jobs)}")
