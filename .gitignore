@@ -19,7 +19,6 @@ env/
 *.swo
 
 # Config (contains credentials)
-config/accounts.yaml
 config/settings.yaml
 config/credentials/
 .env
