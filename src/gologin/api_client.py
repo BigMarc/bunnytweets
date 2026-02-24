@@ -97,11 +97,13 @@ class GoLoginClient:
         GoLogin and Dolphin Anty.
         """
         logger.info(f"Starting GoLogin profile {profile_id} (headless={headless})")
-        json_data: dict = {"profileId": profile_id, "sync": True}
+        # sync=False: skip cloud sync — near-instant for profiles that are
+        # already running or were recently opened in GoLogin.
+        json_data: dict = {"profileId": profile_id, "sync": False}
 
         url = f"{self.base_url}/browser/start-profile"
         logger.debug(f"POST {url} body={json_data}")
-        resp = self._session.post(url, headers=self._post_headers, json=json_data, timeout=120)
+        resp = self._session.post(url, headers=self._post_headers, json=json_data, timeout=60)
         if not resp.ok:
             logger.error(f"POST start-profile failed ({resp.status_code}): {resp.text}")
         resp.raise_for_status()
@@ -116,17 +118,42 @@ class GoLoginClient:
                 f"No wsUrl in GoLogin start-profile response for {profile_id}: {data}"
             )
 
-        # Parse "ws://127.0.0.1:22739/devtools/browser/abc-123"
-        parsed = urlparse(ws_url)
-        port = parsed.port
-        ws_endpoint = parsed.path  # e.g. "/devtools/browser/abc-123"
-
-        if not port:
+        result = self._parse_ws_url(ws_url)
+        if not result.get("port"):
             raise RuntimeError(
                 f"Could not extract debug port from wsUrl '{ws_url}' for profile {profile_id}"
             )
 
-        return {"port": port, "ws_endpoint": ws_endpoint}
+        return result
+
+    def _parse_ws_url(self, ws_url: str) -> dict:
+        """Extract port and ws_endpoint from a GoLogin wsUrl string."""
+        parsed = urlparse(ws_url)
+        return {"port": parsed.port, "ws_endpoint": parsed.path}
+
+    def is_profile_running(self, profile_id: str) -> dict | None:
+        """Check whether a profile is already running in GoLogin.
+
+        Calls ``start-profile`` with ``sync=false`` which returns
+        immediately for running profiles.  Returns a normalised
+        ``{"port": int, "ws_endpoint": str}`` dict if running, else None.
+        """
+        try:
+            url = f"{self.base_url}/browser/start-profile"
+            resp = self._session.post(
+                url,
+                headers=self._post_headers,
+                json={"profileId": profile_id, "sync": False},
+                timeout=10,
+            )
+            if resp.ok:
+                data = resp.json()
+                ws_url = data.get("wsUrl", "")
+                if data.get("status") == "success" and ws_url:
+                    return self._parse_ws_url(ws_url)
+        except Exception:
+            pass
+        return None
 
     def stop_profile(self, profile_id: str) -> dict:
         """Stop a running browser profile.
