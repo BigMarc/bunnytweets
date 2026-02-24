@@ -132,19 +132,27 @@ class Application:
         gd_cfg = self.config.google_drive
         creds_path = str(self.config.resolve_path(gd_cfg.get("credentials_file", "")))
         self.drive_client = None
+        self.file_monitor = None
         if Path(creds_path).exists():
-            self.drive_client = DriveClient(creds_path)
-            self.file_monitor = FileMonitor(
-                self.drive_client,
-                self.db,
-                download_dir=str(
-                    self.config.resolve_path(
-                        gd_cfg.get("download_dir", "data/downloads")
-                    )
-                ),
-            )
+            try:
+                self.drive_client = DriveClient(creds_path)
+                self.file_monitor = FileMonitor(
+                    self.drive_client,
+                    self.db,
+                    download_dir=str(
+                        self.config.resolve_path(
+                            gd_cfg.get("download_dir", "data/downloads")
+                        )
+                    ),
+                )
+            except Exception as exc:
+                logger.warning(
+                    f"Google Drive credentials at {creds_path} could not be loaded: {exc}. "
+                    "Drive sync will be disabled."
+                )
+                self.drive_client = None
+                self.file_monitor = None
         else:
-            self.file_monitor = None
             logger.warning(
                 f"Google Drive credentials not found at {creds_path}. "
                 "Drive sync will be disabled."
