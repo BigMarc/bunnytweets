@@ -87,7 +87,7 @@ class GoLoginClient:
         """Start a browser profile via GoLogin desktop app.
 
         Endpoint: POST http://localhost:36912/browser/start-profile
-        Body: {"profileId": "<id>", "sync": true}
+        Body: {"profileId": "<id>", "sync": false}
         Response: {"status": "success", "wsUrl": "ws://127.0.0.1:<port>/devtools/browser/<id>"}
 
         Returns a normalised dict::
@@ -97,87 +97,83 @@ class GoLoginClient:
         so that ProfileManager can connect Selenium identically for both
         GoLogin and Dolphin Anty.
 
-        Retries up to 5 times on:
-        - Read timeouts (GoLogin overloaded with many simultaneous starts)
-        - Empty wsUrl responses (profile still initialising)
-
-        Uses ``sync=True`` on the first attempt so GoLogin blocks until the
-        profile is fully ready.  On subsequent attempts (empty wsUrl or
-        timeout) switches to ``sync=False`` polling — the profile is already
-        launching, we just need GoLogin to report the debug port.
+        Uses a fire-and-forget approach: sends ``sync=False`` to trigger the
+        profile launch (returns immediately), then polls until GoLogin
+        reports the debug port via ``wsUrl``.  This avoids blocking HTTP
+        calls that deadlock when multiple profiles start concurrently.
         """
         logger.info(f"Starting GoLogin profile {profile_id} (headless={headless})")
         url = f"{self.base_url}/browser/start-profile"
 
-        # Phase 1: sync=True makes GoLogin block until the profile is ready,
-        # guaranteeing a populated wsUrl when it works.
-        json_data: dict = {"profileId": profile_id, "sync": True}
-
-        max_attempts = 6  # 1 initial + 5 retries
-        for attempt in range(1, max_attempts + 1):
-            try:
-                logger.debug(f"POST {url} body={json_data} (attempt {attempt}/{max_attempts})")
-                resp = self._session.post(
-                    url, headers=self._post_headers, json=json_data,
-                    timeout=(10, 120),  # (connect, read) — 120s read for slow starts
+        # Phase 1: Fire-and-forget — tell GoLogin to start the profile.
+        # sync=False returns immediately; the profile opens in the background.
+        json_data: dict = {"profileId": profile_id, "sync": False}
+        try:
+            resp = self._session.post(
+                url, headers=self._post_headers, json=json_data,
+                timeout=(10, 30),
+            )
+            if not resp.ok:
+                logger.error(
+                    f"POST start-profile failed ({resp.status_code}): {resp.text}"
                 )
-                if not resp.ok:
-                    logger.error(f"POST start-profile failed ({resp.status_code}): {resp.text}")
-                resp.raise_for_status()
-                data = resp.json()
+            resp.raise_for_status()
+            data = resp.json()
 
-                if data.get("status") != "success":
-                    raise RuntimeError(
-                        f"Failed to start GoLogin profile {profile_id}: {data}"
-                    )
-
+            # If GoLogin already had this profile running, we may get
+            # the wsUrl immediately — no need to poll.
+            if data.get("status") == "success":
                 ws_url = data.get("wsUrl", "")
-                if not ws_url:
-                    # Phase 2: Profile launched but wsUrl not ready yet.
-                    # Switch to sync=False polling — the profile is already
-                    # running, we just need GoLogin to tell us the port.
-                    if attempt < max_attempts:
-                        delay = 5 * attempt
-                        logger.warning(
-                            f"GoLogin returned empty wsUrl for {profile_id} "
-                            f"(attempt {attempt}/{max_attempts}). "
-                            f"Polling in {delay}s..."
+                if ws_url:
+                    result = self._parse_ws_url(ws_url)
+                    if result.get("port"):
+                        logger.info(
+                            f"Profile {profile_id} was already running "
+                            f"(port={result['port']})"
                         )
-                        time.sleep(delay)
-                        json_data = {"profileId": profile_id, "sync": False}
-                        continue
-                    raise RuntimeError(
-                        f"No wsUrl in GoLogin start-profile response for "
-                        f"{profile_id} after {max_attempts} attempts: {data}"
-                    )
+                        return result
 
-                result = self._parse_ws_url(ws_url)
-                if not result.get("port"):
-                    raise RuntimeError(
-                        f"Could not extract debug port from wsUrl '{ws_url}' "
-                        f"for profile {profile_id}"
-                    )
+        except (requests.exceptions.ReadTimeout,
+                requests.exceptions.ConnectionError) as exc:
+            # GoLogin may be busy — the start command may still have been
+            # accepted.  Fall through to polling.
+            logger.warning(
+                f"GoLogin start-profile request for {profile_id} "
+                f"timed out: {exc}. Will poll for readiness..."
+            )
 
+        # Phase 2: Poll until the profile is ready and wsUrl is available.
+        max_polls = 12
+        poll_interval = 8  # seconds between polls
+        initial_delay = 5  # seconds before first poll
+
+        logger.info(
+            f"Waiting for profile {profile_id} to become ready "
+            f"(polling every {poll_interval}s, up to ~{initial_delay + max_polls * poll_interval}s)..."
+        )
+        time.sleep(initial_delay)
+
+        for poll in range(1, max_polls + 1):
+            result = self.is_profile_running(profile_id)
+            if result and result.get("port"):
+                logger.info(
+                    f"Profile {profile_id} ready after ~"
+                    f"{initial_delay + poll * poll_interval}s "
+                    f"(poll {poll}/{max_polls}, port={result['port']})"
+                )
                 return result
 
-            except (requests.exceptions.ReadTimeout,
-                    requests.exceptions.ConnectionError) as exc:
-                if attempt < max_attempts:
-                    delay = 5 * attempt
-                    logger.warning(
-                        f"GoLogin start-profile timed out for {profile_id} "
-                        f"(attempt {attempt}/{max_attempts}): {exc}. "
-                        f"Retrying in {delay}s..."
-                    )
-                    time.sleep(delay)
-                    # After a timeout the profile may already be running —
-                    # switch to sync=False to avoid re-triggering a full start.
-                    json_data = {"profileId": profile_id, "sync": False}
-                else:
-                    raise RuntimeError(
-                        f"GoLogin start-profile failed for {profile_id} after "
-                        f"{max_attempts} attempts: {exc}"
-                    ) from exc
+            logger.debug(
+                f"Profile {profile_id} not ready yet "
+                f"(poll {poll}/{max_polls})"
+            )
+            if poll < max_polls:
+                time.sleep(poll_interval)
+
+        raise RuntimeError(
+            f"GoLogin profile {profile_id} did not become ready after "
+            f"~{initial_delay + max_polls * poll_interval}s of polling"
+        )
 
     def _parse_ws_url(self, ws_url: str) -> dict:
         """Extract port and ws_endpoint from a GoLogin wsUrl string."""
