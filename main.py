@@ -584,20 +584,33 @@ class Application:
         self._ready.set()
         logger.info("Engine ready — setting up accounts")
 
-        # Set up all accounts concurrently — cap concurrency to avoid
-        # overwhelming GoLogin's local API with too many simultaneous starts.
+        # Fire ALL profile start commands upfront — sync=False returns
+        # instantly, so GoLogin begins opening every profile in parallel.
         from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
 
-        setup_timeout = 600  # seconds — hard cap on total account setup time
-        active_accounts = []
-        max_setup_workers = min(4, len(accounts))
-        pool = ThreadPoolExecutor(max_workers=max_setup_workers)
-
-        # Mark all accounts as "setting_up" so the dashboard reflects reality
         for acct in accounts:
             self.db.update_account_status(
                 acct["name"], status="setting_up", error_message=None
             )
+
+        profile_ids = []
+        for acct in accounts:
+            pcfg = self._get_platform_cfg(acct)
+            pid = pcfg.get("profile_id") or pcfg.get("dolphin_profile_id")
+            profile_ids.append(pid)
+
+        logger.info(f"Firing start commands for {len(profile_ids)} profiles...")
+        for pid in profile_ids:
+            try:
+                self.browser_client.start_profile_async(pid)
+            except Exception as exc:
+                logger.warning(f"Pre-start for {pid} failed: {exc}")
+
+        # Now set up accounts concurrently — profiles are already opening,
+        # so setup_account() will find them via polling.
+        setup_timeout = 600  # seconds — hard cap on total account setup time
+        active_accounts = []
+        pool = ThreadPoolExecutor(max_workers=len(accounts))
 
         future_to_acct = {
             pool.submit(self.setup_account, acct): acct for acct in accounts

@@ -175,6 +175,30 @@ class GoLoginClient:
             f"~{initial_delay + max_polls * poll_interval}s of polling"
         )
 
+    def start_profile_async(self, profile_id: str) -> None:
+        """Fire a non-blocking start command for a profile.
+
+        Sends ``sync=False`` so GoLogin begins opening the profile in the
+        background and returns immediately.  Call ``start_profile()`` or
+        ``is_profile_running()`` later to wait for the debug port.
+        """
+        url = f"{self.base_url}/browser/start-profile"
+        json_data = {"profileId": profile_id, "sync": False}
+        try:
+            resp = self._session.post(
+                url, headers=self._post_headers, json=json_data,
+                timeout=(10, 15),
+            )
+            if resp.ok:
+                logger.debug(f"Start command sent for profile {profile_id}")
+            else:
+                logger.warning(
+                    f"Start command for {profile_id} returned "
+                    f"{resp.status_code}: {resp.text}"
+                )
+        except Exception as exc:
+            logger.warning(f"Start command for {profile_id} failed: {exc}")
+
     def _parse_ws_url(self, ws_url: str) -> dict:
         """Extract port and ws_endpoint from a GoLogin wsUrl string."""
         parsed = urlparse(ws_url)
