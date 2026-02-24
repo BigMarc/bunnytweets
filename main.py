@@ -570,12 +570,14 @@ class Application:
         # reset transient account statuses from previous (possibly crashed) run.
         self._preflight_cleanup(accounts)
 
-        # Set up each account (parallel – browser starts are I/O-bound)
+        # Set up each account — stagger browser starts so GoLogin's local
+        # API isn't overwhelmed (max 3 concurrent profile launches).
         from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
 
         setup_timeout = 600  # seconds — hard cap on total account setup time
         active_accounts = []
-        pool = ThreadPoolExecutor(max_workers=min(len(accounts), 15))
+        scheduler_started = False
+        pool = ThreadPoolExecutor(max_workers=min(len(accounts), 3))
         future_to_acct = {
             pool.submit(self.setup_account, acct): acct for acct in accounts
         }
@@ -586,6 +588,24 @@ class Application:
                     if future.result():
                         self.schedule_account(acct)
                         active_accounts.append(acct)
+
+                        # Start scheduler/queue as soon as the first account
+                        # succeeds — remaining accounts continue in background.
+                        if not scheduler_started:
+                            self.queue.start()
+                            self.job_manager.start()
+                            self.job_manager.add_health_check(
+                                dispatch_health_check, interval_minutes=5
+                            )
+                            self.job_manager.add_cta_check_job(
+                                dispatch_cta_check, interval_minutes=5
+                            )
+                            self._ready.set()
+                            scheduler_started = True
+                            logger.info(
+                                "Engine ready — first account active, "
+                                "remaining accounts setting up in background"
+                            )
                     else:
                         self._failed_accounts.append(acct)
                 except Exception as exc:
@@ -608,13 +628,7 @@ class Application:
             self.shutdown()
             raise RuntimeError("No accounts could be initialised")
 
-        logger.info(f"{len(active_accounts)} account(s) active")
-
-        # Health check
-        self.job_manager.add_health_check(dispatch_health_check, interval_minutes=5)
-
-        # CTA comment check (looks for pending CTAs every 5 min)
-        self.job_manager.add_cta_check_job(dispatch_cta_check, interval_minutes=5)
+        logger.info(f"{len(active_accounts)} account(s) active, {len(self._failed_accounts)} failed")
 
         # Retry failed account setups every 5 min (up to max_setup_retries)
         if self._failed_accounts:
@@ -630,13 +644,6 @@ class Application:
                 replace_existing=True,
                 name="Retry failed account setups",
             )
-
-        # Start scheduler & queue
-        self.queue.start()
-        self.job_manager.start()
-
-        # Signal that the engine is fully ready
-        self._ready.set()
 
         self._print_dashboard()
 
