@@ -64,6 +64,8 @@ logging:
   retention_days: 30
   # Separate log file per account
   per_account_logs: true
+  # Suppress terminal output (logs still written to files)
+  quiet: false
 
 # Discord webhook notifications (troubleshooting alerts)
 discord:

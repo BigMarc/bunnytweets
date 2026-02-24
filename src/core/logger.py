@@ -9,6 +9,7 @@ def setup_logging(
     retention_days: int = 30,
     per_account_logs: bool = True,
     log_dir: str = "data/logs",
+    quiet: bool = False,
 ) -> None:
     """Configure loguru for the application."""
     log_path = Path(log_dir)
@@ -17,17 +18,18 @@ def setup_logging(
     # Remove default handler
     logger.remove()
 
-    # Console handler
-    logger.add(
-        sys.stderr,
-        level=level,
-        format=(
-            "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
-            "<level>{level: <8}</level> | "
-            "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
-            "<level>{message}</level>"
-        ),
-    )
+    # Console handler (skip when quiet mode is enabled)
+    if not quiet:
+        logger.add(
+            sys.stderr,
+            level=level,
+            format=(
+                "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
+                "<level>{level: <8}</level> | "
+                "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+                "<level>{message}</level>"
+            ),
+        )
 
     # Main log file (rotated daily)
     logger.add(
@@ -43,7 +45,8 @@ def setup_logging(
     )
 
 
-def get_account_logger(account_name: str, log_dir: str = "data/logs"):
+def get_account_logger(account_name: str, log_dir: str = "data/logs",
+                       retention_days: int = 30):
     """Return a logger bound to a specific account, writing to its own file."""
     log_path = Path(log_dir)
     log_path.mkdir(parents=True, exist_ok=True)
@@ -53,7 +56,7 @@ def get_account_logger(account_name: str, log_dir: str = "data/logs"):
         str(log_path / f"{account_name}_{{time:YYYY-MM-DD}}.log"),
         level="DEBUG",
         rotation="00:00",
-        retention="30 days",
+        retention=f"{retention_days} days",
         filter=lambda record: record["extra"].get("account") == account_name,
         format=(
             "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | "

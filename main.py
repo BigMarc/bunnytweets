@@ -9,6 +9,7 @@ Usage:
     python main.py --add-account  Add a new Twitter account interactively
     python main.py --status     Show account status dashboard
     python main.py --test       Run a connectivity test against the browser provider
+    python main.py --quiet      Run with terminal output suppressed (logs to files only)
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ from loguru import logger
 class Application:
     """Main application that wires all components together."""
 
-    def __init__(self):
+    def __init__(self, quiet: bool = False):
         # Deferred imports so that --setup/--add-account work without
         # heavy dependencies like selenium being installed.
         from src.core.config_loader import ConfigLoader
@@ -46,11 +47,13 @@ class Application:
 
         # Logging
         log_cfg = self.config.logging
+        self._log_retention_days = log_cfg.get("retention_days", 30)
         setup_logging(
             level=log_cfg.get("level", "INFO"),
-            retention_days=log_cfg.get("retention_days", 30),
+            retention_days=self._log_retention_days,
             per_account_logs=log_cfg.get("per_account_logs", True),
             log_dir=str(self.config.resolve_path("data/logs")),
+            quiet=quiet or log_cfg.get("quiet", False),
         )
 
         # Browser provider (GoLogin or Dolphin Anty)
@@ -237,7 +240,8 @@ class Application:
         platform = self._get_platform(acct)
         platform_cfg = self._get_platform_cfg(acct)
         profile_id = platform_cfg.get("profile_id") or platform_cfg.get("dolphin_profile_id")
-        get_account_logger(name, str(self.config.resolve_path("data/logs")))
+        get_account_logger(name, str(self.config.resolve_path("data/logs")),
+                          retention_days=self._log_retention_days)
 
         try:
             driver = self.profile_manager.start_browser(profile_id)
@@ -626,6 +630,8 @@ def main():
     parser.add_argument("--add-account", action="store_true", help="Add a new Twitter account interactively")
     parser.add_argument("--status", action="store_true", help="Show account status")
     parser.add_argument("--test", action="store_true", help="Test connections")
+    parser.add_argument("-q", "--quiet", action="store_true",
+                        help="Suppress terminal output (logs still written to files)")
     args = parser.parse_args()
 
     # Setup commands run before Application() since config files may not exist
@@ -660,7 +666,7 @@ def main():
         flask_app.run(host="0.0.0.0", port=args.port, debug=False)
         return
 
-    app = Application()
+    app = Application(quiet=args.quiet)
 
     if args.status:
         app.show_status()

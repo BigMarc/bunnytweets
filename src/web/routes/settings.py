@@ -102,6 +102,7 @@ def save():
         "level": request.form.get("logging.level", "INFO"),
         "retention_days": _to_int(request.form.get("logging.retention_days", "30"), 30),
         "per_account_logs": "logging.per_account_logs" in request.form,
+        "quiet": "logging.quiet" in request.form,
     }
 
     # Database
