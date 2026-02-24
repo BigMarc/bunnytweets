@@ -1,7 +1,24 @@
 from __future__ import annotations
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from loguru import logger
+
+
+def _retry_session() -> requests.Session:
+    """Create a requests Session with automatic retry on transient errors."""
+    session = requests.Session()
+    retries = Retry(
+        total=3,
+        backoff_factor=1,
+        status_forcelist=[500, 502, 503, 504],
+        allowed_methods=["GET", "POST"],
+    )
+    adapter = HTTPAdapter(max_retries=retries)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
 
 
 class DolphinAntyClient:
@@ -18,6 +35,7 @@ class DolphinAntyClient:
         self.api_token = api_token
         self.headers: dict[str, str] = {"Content-Type": "application/json"}
         self._authenticated = False
+        self._session = _retry_session()
 
     # ------------------------------------------------------------------
     # Authentication
@@ -38,7 +56,7 @@ class DolphinAntyClient:
 
         url = f"{self.base_url}/auth/login-with-token"
         logger.debug(f"POST {url}")
-        resp = requests.post(
+        resp = self._session.post(
             url,
             headers={"Content-Type": "application/json"},
             json={"token": token},
@@ -67,19 +85,19 @@ class DolphinAntyClient:
     # ------------------------------------------------------------------
     # HTTP helpers
     # ------------------------------------------------------------------
-    def _get(self, path: str, params: dict | None = None) -> dict:
+    def _get(self, path: str, params: dict | None = None, timeout: int = 30) -> dict:
         url = f"{self.base_url}{path}"
         logger.debug(f"GET {url} params={params}")
-        resp = requests.get(url, headers=self.headers, params=params, timeout=30)
+        resp = self._session.get(url, headers=self.headers, params=params, timeout=timeout)
         if not resp.ok:
             logger.error(f"GET {path} failed ({resp.status_code}): {resp.text}")
         resp.raise_for_status()
         return resp.json()
 
-    def _post(self, path: str, json_data: dict | None = None) -> dict:
+    def _post(self, path: str, json_data: dict | None = None, timeout: int = 30) -> dict:
         url = f"{self.base_url}{path}"
         logger.debug(f"POST {url} body={json_data}")
-        resp = requests.post(url, headers=self.headers, json=json_data, timeout=30)
+        resp = self._session.post(url, headers=self.headers, json=json_data, timeout=timeout)
         if not resp.ok:
             logger.error(f"POST {path} failed ({resp.status_code}): {resp.text}")
         resp.raise_for_status()
@@ -110,7 +128,7 @@ class DolphinAntyClient:
         if headless:
             json_data["headless"] = True
 
-        data = self._post(f"/browser_profiles/{profile_id}/start", json_data=json_data)
+        data = self._post(f"/browser_profiles/{profile_id}/start", json_data=json_data, timeout=120)
 
         if not data.get("success", False):
             raise RuntimeError(f"Failed to start profile {profile_id}: {data}")

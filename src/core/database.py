@@ -142,13 +142,40 @@ class GlobalTarget(Base):
     added_at = Column(DateTime, default=datetime.utcnow)
 
 
+class TitleUsage(Base):
+    """Per-account title usage tracking for fair rotation.
+
+    Mirrors the ProcessedFile rotation pattern: titles with the lowest
+    use_count are preferred so every title gets equal airtime.
+    """
+    __tablename__ = "title_usage"
+
+    id = Column(Integer, primary_key=True)
+    account_name = Column(String, index=True, nullable=False)
+    title_id = Column(Integer, ForeignKey("titles.id", ondelete="CASCADE"), nullable=False)
+    use_count = Column(Integer, default=0)
+
+
 class Database:
     """Thin wrapper around SQLAlchemy for state tracking."""
 
     def __init__(self, db_path: str = "data/database/automation.db"):
         path = Path(db_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        self.engine = create_engine(f"sqlite:///{path}", echo=False)
+        self.engine = create_engine(
+            f"sqlite:///{path}",
+            echo=False,
+            connect_args={"timeout": 30},
+        )
+        # Enable WAL mode for better concurrent read/write performance
+        from sqlalchemy import event
+
+        @event.listens_for(self.engine, "connect")
+        def _set_sqlite_pragma(dbapi_conn, connection_record):
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=5000")
+            cursor.close()
         self._migrate_retweets_table()
         Base.metadata.create_all(self.engine)
         self._migrate_add_columns()
@@ -350,8 +377,12 @@ class Database:
                 .all()
             )
 
-    def get_random_title(self, category_names: list[str]) -> str | None:
-        """Pick a random title from the given categories.
+    def get_random_title(self, category_names: list[str], account_name: str | None = None) -> str | None:
+        """Pick the least-used title from the given categories for this account.
+
+        Uses the same rotation strategy as content files: titles with the
+        lowest use_count are preferred so every title gets airtime before
+        any repeats.  Falls back to pure random when no account is given.
 
         Always includes "Global" category.
         """
@@ -359,7 +390,51 @@ class Database:
         titles = self.get_titles_by_category_names(names)
         if not titles:
             return None
-        return random.choice(titles).text
+
+        if not account_name:
+            return random.choice(titles).text
+
+        # Least-used-first rotation per account
+        with self.session() as s:
+            counts: dict[int, int] = {}
+            for t in titles:
+                usage = (
+                    s.query(TitleUsage)
+                    .filter_by(account_name=account_name, title_id=t.id)
+                    .first()
+                )
+                counts[t.id] = (usage.use_count or 0) if usage else 0
+
+        min_count = min(counts.values())
+        candidates = [t for t in titles if counts[t.id] == min_count]
+        return random.choice(candidates).text
+
+    def increment_title_use(self, account_name: str, title_text: str, category_names: list[str]) -> None:
+        """Increment usage counter for a title after it's been posted."""
+        names = list(set(category_names) | {"Global"})
+        with self.session() as s:
+            # Find the title by text in the relevant categories
+            cats = s.query(TitleCategory).filter(TitleCategory.name.in_(names)).all()
+            cat_ids = [c.id for c in cats]
+            if not cat_ids:
+                return
+            title = (
+                s.query(Title)
+                .filter(Title.category_id.in_(cat_ids), Title.text == title_text)
+                .first()
+            )
+            if not title:
+                return
+            usage = (
+                s.query(TitleUsage)
+                .filter_by(account_name=account_name, title_id=title.id)
+                .first()
+            )
+            if usage:
+                usage.use_count = (usage.use_count or 0) + 1
+            else:
+                s.add(TitleUsage(account_name=account_name, title_id=title.id, use_count=1))
+            s.commit()
 
     def add_title(self, text: str, category_id: int) -> Title:
         with self.session() as s:
@@ -368,6 +443,19 @@ class Database:
             s.commit()
             s.refresh(title)
             return title
+
+    def bulk_add_titles(self, texts: list[str], category_id: int) -> int:
+        """Add multiple titles to a category. Returns count of titles added."""
+        added = 0
+        with self.session() as s:
+            for text in texts:
+                text = text.strip()
+                if not text:
+                    continue
+                s.add(Title(text=text, category_id=category_id))
+                added += 1
+            s.commit()
+        return added
 
     def delete_title(self, title_id: int) -> bool:
         with self.session() as s:

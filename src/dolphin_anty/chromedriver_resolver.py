@@ -12,6 +12,9 @@ import re
 import requests
 from loguru import logger
 
+# Module-level cache: chrome_major -> (chromedriver_path, chrome_major)
+_resolve_cache: dict[str, tuple[str | None, str | None]] = {}
+
 
 def get_chrome_version_from_cdp(port: int, timeout: float = 5.0) -> str | None:
     """Query a running Chrome's /json/version endpoint.
@@ -54,11 +57,19 @@ def resolve_chromedriver(port: int) -> tuple[str | None, str | None]:
     major = full_version.split(".")[0]
     logger.info(f"Detected Chrome {full_version} (major {major}) on port {port}")
 
+    # Return cached result if we already resolved this major version
+    if major in _resolve_cache:
+        cached = _resolve_cache[major]
+        logger.debug(f"Using cached ChromeDriver for Chrome {major}")
+        return cached
+
     chromedriver_path = _try_webdriver_manager(full_version, major)
     if chromedriver_path:
+        _resolve_cache[major] = (chromedriver_path, major)
         return chromedriver_path, major
 
     # Fallback: let Selenium Manager handle it via browser_version
+    _resolve_cache[major] = (None, major)
     return None, major
 
 

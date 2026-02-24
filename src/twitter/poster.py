@@ -196,16 +196,18 @@ class TwitterPoster:
         return success
 
     def _pick_title(self) -> str:
-        """Pick a random title from the account's assigned categories.
+        """Pick the least-used title from the account's assigned categories.
 
-        Falls back to posting.default_text if no titles are configured.
+        Uses rotation tracking so every title gets equal airtime before
+        any repeats.  Falls back to posting.default_text if no titles exist.
         """
         posting_cfg = self.config.get("posting", {})
         categories = posting_cfg.get("title_categories", [])
 
         if categories:
-            title = self.db.get_random_title(categories)
+            title = self.db.get_random_title(categories, account_name=self.account_name)
             if title:
+                self.db.increment_title_use(self.account_name, title, categories)
                 return title
 
         # Fallback to default_text

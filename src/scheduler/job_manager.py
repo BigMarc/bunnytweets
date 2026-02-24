@@ -11,8 +11,9 @@ APScheduler's built-in ``SQLAlchemyJobStore``.  This means:
 
 from __future__ import annotations
 
+import hashlib
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, date, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
@@ -38,6 +39,19 @@ class JobManager:
         )
         self.scheduler.add_listener(self._on_job_event, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
         self.timezone = timezone
+
+    @staticmethod
+    def _daily_rng(account_name: str, job_prefix: str) -> random.Random:
+        """Return a deterministic RNG seeded by account + today's date.
+
+        Ensures the same random schedule is produced on every restart
+        within the same day, preventing tasks from bunching up after
+        a mid-day crash/restart.
+        """
+        seed = hashlib.sha256(
+            f"{account_name}:{job_prefix}:{date.today().isoformat()}".encode()
+        ).hexdigest()
+        return random.Random(seed)
 
     def _on_job_event(self, event):
         if event.exception:
@@ -89,6 +103,8 @@ class JobManager:
         if not time_windows or daily_limit <= 0:
             return
 
+        rng = self._daily_rng(account_name, "retweet")
+
         # Spread retweets evenly across time windows
         retweets_per_window = max(1, daily_limit // len(time_windows))
         remaining = daily_limit
@@ -101,10 +117,9 @@ class JobManager:
             end_h, end_m = map(int, window["end"].split(":"))
 
             for ri in range(count):
-                # Pick a random minute within the window for each retweet
                 total_start = start_h * 60 + start_m
                 total_end = end_h * 60 + end_m
-                random_minute = random.randint(total_start, max(total_start, total_end - 1))
+                random_minute = rng.randint(total_start, max(total_start, total_end - 1))
                 h = random_minute // 60
                 m = random_minute % 60
 
@@ -162,6 +177,8 @@ class JobManager:
         if not time_windows or daily_sessions <= 0:
             return
 
+        rng = self._daily_rng(account_name, "sim")
+
         sessions_per_window = max(1, daily_sessions // len(time_windows))
         remaining = daily_sessions
 
@@ -175,7 +192,7 @@ class JobManager:
             for si in range(count):
                 total_start = start_h * 60 + start_m
                 total_end = end_h * 60 + end_m
-                random_minute = random.randint(total_start, max(total_start, total_end - 1))
+                random_minute = rng.randint(total_start, max(total_start, total_end - 1))
                 h = random_minute // 60
                 m = random_minute % 60
 
@@ -208,6 +225,8 @@ class JobManager:
         if not time_windows or daily_limit <= 0:
             return
 
+        rng = self._daily_rng(account_name, "reply")
+
         replies_per_window = max(1, daily_limit // len(time_windows))
         remaining = daily_limit
 
@@ -221,7 +240,7 @@ class JobManager:
             for ri in range(count):
                 total_start = start_h * 60 + start_m
                 total_end = end_h * 60 + end_m
-                random_minute = random.randint(total_start, max(total_start, total_end - 1))
+                random_minute = rng.randint(total_start, max(total_start, total_end - 1))
                 h = random_minute // 60
                 m = random_minute % 60
 
