@@ -584,20 +584,43 @@ class Application:
         self._ready.set()
         logger.info("Engine ready — setting up accounts")
 
-        # Set up all accounts concurrently — cap concurrency to avoid
-        # overwhelming GoLogin's local API with too many simultaneous starts.
+        # Phase 1 — Start ALL GoLogin profiles via serialized API calls.
+        # GoLogin's local API is single-threaded, so we send start commands
+        # one at a time.  GoLogin opens all profiles in parallel internally.
         from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
 
-        setup_timeout = 600  # seconds — hard cap on total account setup time
-        active_accounts = []
-        max_setup_workers = min(4, len(accounts))
-        pool = ThreadPoolExecutor(max_workers=max_setup_workers)
-
-        # Mark all accounts as "setting_up" so the dashboard reflects reality
         for acct in accounts:
             self.db.update_account_status(
                 acct["name"], status="setting_up", error_message=None
             )
+
+        # Build profile_id → account mapping
+        pid_to_acct: dict[str, dict] = {}
+        for acct in accounts:
+            pcfg = self._get_platform_cfg(acct)
+            pid = pcfg.get("profile_id") or pcfg.get("dolphin_profile_id")
+            pid_to_acct[pid] = acct
+
+        # If the client supports bulk start (GoLogin), use it.
+        # Otherwise fall back to starting one at a time in setup_account.
+        ready_profiles: dict[str, dict] = {}
+        if hasattr(self.browser_client, "start_all_profiles"):
+            ready_profiles = self.browser_client.start_all_profiles(
+                list(pid_to_acct.keys())
+            )
+            logger.info(
+                f"{len(ready_profiles)}/{len(pid_to_acct)} profiles ready — "
+                f"attaching Selenium..."
+            )
+            # Cache ready port info so profile_manager.start_browser()
+            # finds them via is_profile_running() without extra API calls.
+
+        # Phase 2 — Attach Selenium and verify login, in parallel.
+        # This phase does NOT call GoLogin's API (Selenium connects
+        # directly to the debug port), so full concurrency is safe.
+        setup_timeout = 300  # seconds
+        active_accounts = []
+        pool = ThreadPoolExecutor(max_workers=len(accounts))
 
         future_to_acct = {
             pool.submit(self.setup_account, acct): acct for acct in accounts
