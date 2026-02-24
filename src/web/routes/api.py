@@ -40,7 +40,7 @@ def status():
 
     queue_info = {"size": 0, "active": 0}
     jobs_count = 0
-    if state.engine_running and state.application:
+    if state.application:
         try:
             queue_info["size"] = state.application.queue.queue_size
             queue_info["active"] = state.application.queue.active_tasks
@@ -73,7 +73,7 @@ def engine():
 @bp.route("/jobs")
 def jobs():
     state = current_app.config["APP_STATE"]
-    if not state.engine_running or not state.application:
+    if not state.application:
         return jsonify([])
     try:
         raw = state.application.job_manager.get_jobs_summary()
@@ -110,7 +110,7 @@ def analytics():
 @bp.route("/queue")
 def queue():
     state = current_app.config["APP_STATE"]
-    if not state.engine_running or not state.application:
+    if not state.application:
         return jsonify({"size": 0, "active": 0})
     try:
         return jsonify({

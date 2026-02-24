@@ -36,12 +36,19 @@ class AppState:
 
     @property
     def engine_running(self) -> bool:
-        with self._lock:
-            return self._engine_status == "running"
+        return self.engine_status == "running"
 
     @property
     def engine_status(self) -> str:
         with self._lock:
+            # Self-heal: if the Application signalled ready but the watcher
+            # thread missed it (race / timing), correct the status now.
+            if (
+                self._engine_status == "starting"
+                and self._application is not None
+                and self._application._ready.is_set()
+            ):
+                self._engine_status = "running"
             return self._engine_status
 
     @property
@@ -51,8 +58,10 @@ class AppState:
 
     def start_engine(self) -> tuple[bool, str]:
         with self._lock:
-            if self._engine_status in ("running", "starting"):
+            if self._engine_status == "running":
                 return False, "Engine is already running"
+            if self._engine_status == "starting":
+                return False, "Engine is still starting up"
             self._engine_status = "starting"
             self._startup_error = None
 
