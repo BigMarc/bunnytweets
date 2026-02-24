@@ -90,6 +90,7 @@ class Application:
         from src.scheduler.job_manager import JobManager
         from src.scheduler.queue_handler import QueueHandler
 
+        self._quiet = quiet
         self.config = ConfigLoader()
         self.db = Database(str(self.config.resolve_path(self.config.database_path)))
 
@@ -547,6 +548,8 @@ class Application:
     # Dashboard
     # ------------------------------------------------------------------
     def _print_dashboard(self) -> None:
+        if self._quiet:
+            return
         print("\n" + "=" * 60)
         print("  BunnyTweets – Multi-Platform Social Media Automation")
         print("=" * 60)
@@ -694,6 +697,9 @@ def main():
             # Auto-start engine when --web --quiet used together
             state = flask_app.config["APP_STATE"]
             state.start_engine()
+            # Suppress Werkzeug per-request access logs (keep errors)
+            import logging
+            logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
         print(f"\n  BunnyTweets Dashboard: http://localhost:{args.port}\n")
         flask_app.run(host="0.0.0.0", port=args.port, debug=False)
