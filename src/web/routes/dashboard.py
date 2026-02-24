@@ -61,7 +61,7 @@ def index():
     jobs = []
     queue_size = 0
     active_tasks = 0
-    if state.engine_running and state.application:
+    if state.application:
         try:
             jobs = state.application.job_manager.get_jobs_summary()
         except Exception:
