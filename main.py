@@ -584,13 +584,21 @@ class Application:
         self._ready.set()
         logger.info("Engine ready — setting up accounts")
 
-        # Set up all accounts concurrently — open every profile at once.
-        # Accounts get scheduled as they come online.
+        # Set up all accounts concurrently — cap concurrency to avoid
+        # overwhelming GoLogin's local API with too many simultaneous starts.
         from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
 
         setup_timeout = 600  # seconds — hard cap on total account setup time
         active_accounts = []
-        pool = ThreadPoolExecutor(max_workers=len(accounts))
+        max_setup_workers = min(4, len(accounts))
+        pool = ThreadPoolExecutor(max_workers=max_setup_workers)
+
+        # Mark all accounts as "setting_up" so the dashboard reflects reality
+        for acct in accounts:
+            self.db.update_account_status(
+                acct["name"], status="setting_up", error_message=None
+            )
+
         future_to_acct = {
             pool.submit(self.setup_account, acct): acct for acct in accounts
         }

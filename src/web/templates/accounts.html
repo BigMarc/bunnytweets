@@ -44,6 +44,8 @@
                     <td>
                         {% if acct.status == 'running' %}
                             <span class="badge bg-primary">Running</span>
+                        {% elif acct.status == 'setting_up' %}
+                            <span class="badge bg-info">Setting Up</span>
                         {% elif acct.status == 'error' %}
                             <span class="badge bg-danger">Error</span>
                         {% elif acct.status == 'paused' %}
