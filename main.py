@@ -20,10 +20,58 @@ import sys
 import threading
 import time
 from datetime import datetime
-from functools import partial
 from pathlib import Path
 
 from loguru import logger
+
+# Module-level reference so APScheduler dispatchers can reach the app at
+# runtime.  Set once in Application.__init__().
+_app_ref = None  # type: Application | None
+
+# Task-type → (component dict attr, method name)
+_TASK_DISPATCH = {
+    "post": ("_posters", "run_posting_cycle"),
+    "retweet": ("_retweeters", "run_retweet_cycle"),
+    "simulation": ("_simulators", "run_session"),
+    "reply": ("_repliers", "run_reply_cycle"),
+}
+
+
+def dispatch_job(account_name: str, task_type: str) -> None:
+    """Module-level callback that APScheduler can serialise to the job store.
+
+    Looks up the correct component from the live Application instance and
+    enqueues the task through the normal queue.
+    """
+    app = _app_ref
+    if app is None:
+        logger.warning(f"dispatch_job({account_name!r}, {task_type!r}) skipped: app not ready")
+        return
+
+    entry = _TASK_DISPATCH.get(task_type)
+    if entry is None:
+        logger.error(f"dispatch_job: unknown task_type {task_type!r}")
+        return
+
+    attr, method_name = entry
+    component = getattr(app, attr).get(account_name)
+    if component is None:
+        logger.warning(f"dispatch_job: no {task_type} component for {account_name!r}")
+        return
+
+    app._enqueue_task(account_name, task_type, getattr(component, method_name))
+
+
+def dispatch_health_check() -> None:
+    """Module-level health-check callback for APScheduler persistence."""
+    if _app_ref is not None:
+        _app_ref._health_check()
+
+
+def dispatch_cta_check() -> None:
+    """Module-level CTA-check callback for APScheduler persistence."""
+    if _app_ref is not None:
+        _app_ref._check_cta_pending()
 
 
 class Application:
@@ -109,6 +157,9 @@ class Application:
 
         self._shutdown = False
         self._ready = threading.Event()
+
+        global _app_ref
+        _app_ref = self
 
     # ------------------------------------------------------------------
     # Browser provider factory
@@ -277,7 +328,8 @@ class Application:
                 self.job_manager.add_posting_jobs(
                     name,
                     schedule,
-                    callback=partial(self._enqueue_task, name, "post", self._posters[name].run_posting_cycle),
+                    callback=dispatch_job,
+                    callback_args=(name, "post"),
                 )
 
         # Retweet / Repost schedule
@@ -294,7 +346,8 @@ class Application:
                 name,
                 daily_limit=daily_limit,
                 time_windows=rt_cfg.get("time_windows", []),
-                callback=partial(self._enqueue_task, name, "retweet", self._retweeters[name].run_retweet_cycle),
+                callback=dispatch_job,
+                callback_args=(name, "retweet"),
             )
 
         # Human simulation schedule
@@ -304,7 +357,8 @@ class Application:
                 name,
                 daily_sessions=sim_cfg.get("daily_sessions_limit", 2),
                 time_windows=sim_cfg.get("time_windows", []),
-                callback=partial(self._enqueue_task, name, "simulation", self._simulators[name].run_session),
+                callback=dispatch_job,
+                callback_args=(name, "simulation"),
             )
 
         # Reply schedule
@@ -314,7 +368,8 @@ class Application:
                 name,
                 daily_limit=reply_cfg.get("daily_limit", 10),
                 time_windows=reply_cfg.get("time_windows", []),
-                callback=partial(self._enqueue_task, name, "reply", self._repliers[name].run_reply_cycle),
+                callback=dispatch_job,
+                callback_args=(name, "reply"),
             )
 
     def _enqueue_task(self, account_name: str, task_type: str, callback) -> None:
@@ -380,10 +435,10 @@ class Application:
         logger.info(f"{len(active_accounts)} account(s) active")
 
         # Health check
-        self.job_manager.add_health_check(self._health_check, interval_minutes=5)
+        self.job_manager.add_health_check(dispatch_health_check, interval_minutes=5)
 
         # CTA comment check (looks for pending CTAs every 5 min)
-        self.job_manager.add_cta_check_job(self._check_cta_pending, interval_minutes=5)
+        self.job_manager.add_cta_check_job(dispatch_cta_check, interval_minutes=5)
 
         # Start scheduler & queue
         self.queue.start()

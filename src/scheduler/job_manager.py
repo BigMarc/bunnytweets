@@ -48,7 +48,8 @@ class JobManager:
     # ------------------------------------------------------------------
     # Posting schedules
     # ------------------------------------------------------------------
-    def add_posting_jobs(self, account_name: str, schedule: list[dict], callback) -> None:
+    def add_posting_jobs(self, account_name: str, schedule: list[dict],
+                         callback, callback_args: tuple = ()) -> None:
         """Add cron jobs for posting at specific times.
 
         schedule items: [{"time": "09:00"}, {"time": "15:00"}, ...]
@@ -60,6 +61,7 @@ class JobManager:
             self.scheduler.add_job(
                 callback,
                 trigger="cron",
+                args=callback_args,
                 hour=int(hour),
                 minute=int(minute),
                 id=job_id,
@@ -77,6 +79,7 @@ class JobManager:
         daily_limit: int,
         time_windows: list[dict],
         callback,
+        callback_args: tuple = (),
     ) -> None:
         """Schedule retweet jobs spread across time windows.
 
@@ -109,6 +112,7 @@ class JobManager:
                 self.scheduler.add_job(
                     callback,
                     trigger="cron",
+                    args=callback_args,
                     hour=h,
                     minute=m,
                     id=job_id,
@@ -122,12 +126,14 @@ class JobManager:
     # Drive sync interval
     # ------------------------------------------------------------------
     def add_drive_sync_job(
-        self, account_name: str, interval_minutes: int, callback
+        self, account_name: str, interval_minutes: int, callback,
+        callback_args: tuple = (),
     ) -> None:
         job_id = f"drive_sync_{account_name}"
         self.scheduler.add_job(
             callback,
             trigger="interval",
+            args=callback_args,
             minutes=interval_minutes,
             id=job_id,
             replace_existing=True,
@@ -147,6 +153,7 @@ class JobManager:
         daily_sessions: int,
         time_windows: list[dict],
         callback,
+        callback_args: tuple = (),
     ) -> None:
         """Schedule human simulation sessions spread across time windows.
 
@@ -176,6 +183,7 @@ class JobManager:
                 self.scheduler.add_job(
                     callback,
                     trigger="cron",
+                    args=callback_args,
                     hour=h,
                     minute=m,
                     id=job_id,
@@ -194,6 +202,7 @@ class JobManager:
         daily_limit: int,
         time_windows: list[dict],
         callback,
+        callback_args: tuple = (),
     ) -> None:
         """Schedule reply-to-mentions jobs spread across time windows."""
         if not time_windows or daily_limit <= 0:
@@ -220,6 +229,7 @@ class JobManager:
                 self.scheduler.add_job(
                     callback,
                     trigger="cron",
+                    args=callback_args,
                     hour=h,
                     minute=m,
                     id=job_id,
