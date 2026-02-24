@@ -9,6 +9,7 @@ Usage:
     python main.py --add-account  Add a new Twitter account interactively
     python main.py --status     Show account status dashboard
     python main.py --test       Run a connectivity test against the browser provider
+    python main.py --diagnose   Run system diagnostics and print a health report
     python main.py --quiet      Run with terminal output suppressed (logs to files only)
 """
 
@@ -675,6 +676,33 @@ class Application:
     # Health check
     # ------------------------------------------------------------------
     def _health_check(self) -> None:
+        # Run the full System Diagnoser on each health-check cycle.
+        # Log any warnings/errors so they appear in the automation log
+        # without the developer having to manually run --diagnose.
+        try:
+            from src.core.diagnoser import SystemDiagnoser
+            diag = SystemDiagnoser(app=self, config=self.config, db=self.db)
+            report = diag.run_full_diagnosis()
+            if report.overall_status == "error":
+                logger.error(f"System diagnosis: {report.overall_status.upper()} "
+                             f"({report.duration_ms:.0f}ms)")
+                for sub in report.subsystems:
+                    for chk in sub.checks:
+                        if chk.status == "error":
+                            logger.error(f"  [{sub.subsystem}] {chk.name}: {chk.message}")
+            elif report.overall_status == "warn":
+                logger.warning(f"System diagnosis: {report.overall_status.upper()} "
+                               f"({report.duration_ms:.0f}ms)")
+                for sub in report.subsystems:
+                    for chk in sub.checks:
+                        if chk.status in ("warn", "error"):
+                            logger.warning(f"  [{sub.subsystem}] {chk.name}: {chk.message}")
+            else:
+                logger.debug(f"System diagnosis: OK ({report.duration_ms:.0f}ms)")
+        except Exception as exc:
+            logger.warning(f"System Diagnoser failed: {exc}")
+
+        # Per-browser liveness check (original logic)
         for name, auto in list(self._automations.items()):
             try:
                 auto.driver.title  # quick check that the browser is alive
@@ -864,6 +892,8 @@ def main():
     parser.add_argument("--add-account", action="store_true", help="Add a new Twitter account interactively")
     parser.add_argument("--status", action="store_true", help="Show account status")
     parser.add_argument("--test", action="store_true", help="Test connections")
+    parser.add_argument("--diagnose", action="store_true",
+                        help="Run system diagnostics and print a health report")
     parser.add_argument("-q", "--quiet", action="store_true",
                         help="Suppress terminal output (logs still written to files)")
     args = parser.parse_args()
@@ -907,6 +937,19 @@ def main():
 
         print(f"\n  BunnyTweets Dashboard: http://localhost:{args.port}\n")
         flask_app.run(host="0.0.0.0", port=args.port, debug=False)
+        return
+
+    # Diagnose mode — run system diagnostics without starting the engine
+    if args.diagnose:
+        from src.core.config_loader import ConfigLoader
+        from src.core.database import Database
+        from src.core.diagnoser import SystemDiagnoser
+
+        config = ConfigLoader()
+        db = Database(str(config.resolve_path(config.database_path)))
+        diag = SystemDiagnoser(app=None, config=config, db=db)
+        report = diag.run_full_diagnosis()
+        print(report.render_text())
         return
 
     app = Application(quiet=args.quiet)
