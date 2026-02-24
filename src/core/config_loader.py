@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -20,18 +21,32 @@ class ConfigLoader:
         self.base_dir = Path(__file__).resolve().parent.parent.parent
         settings_p = Path(settings_path)
         accounts_p = Path(accounts_path)
-        self.settings = self._load_yaml(
-            settings_p if settings_p.is_absolute() else self.base_dir / settings_path
-        )
+
+        resolved_settings = settings_p if settings_p.is_absolute() else self.base_dir / settings_path
+        # Auto-copy settings.yaml.example on first run if settings.yaml is missing
+        if not resolved_settings.exists():
+            example = resolved_settings.with_suffix(".yaml.example")
+            if not example.exists():
+                example = resolved_settings.parent / (resolved_settings.stem + ".yaml.example")
+            if example.exists():
+                resolved_settings.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(example, resolved_settings)
+
+        self.settings = self._load_yaml(resolved_settings)
         self.accounts_cfg = self._load_yaml(
-            accounts_p if accounts_p.is_absolute() else self.base_dir / accounts_path
+            accounts_p if accounts_p.is_absolute() else self.base_dir / accounts_path,
+            create_empty=True,
         )
         self._apply_env_overrides()
 
     # ------------------------------------------------------------------
     @staticmethod
-    def _load_yaml(path: Path) -> dict:
+    def _load_yaml(path: Path, *, create_empty: bool = False) -> dict:
         if not path.exists():
+            if create_empty:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("accounts: []\n", encoding="utf-8")
+                return {"accounts": []}
             raise FileNotFoundError(
                 f"Configuration file not found: {path}. "
                 f"Copy the .example file and fill in your details."

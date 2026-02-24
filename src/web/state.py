@@ -165,5 +165,6 @@ class AppState:
             content = "# Twitter Multi-Account Automation - Account Configuration\n"
             content += "# Modified via BunnyTweets Dashboard\n\n"
             content += yaml.dump(data, default_flow_style=False, sort_keys=False)
+            self.accounts_path.parent.mkdir(parents=True, exist_ok=True)
             self.accounts_path.write_text(content, encoding="utf-8")
         self.reload_config()
