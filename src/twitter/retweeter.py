@@ -114,6 +114,7 @@ class TwitterRetweeter:
                         self.account_name,
                         last_retweet=datetime.utcnow(),
                         status="idle",
+                        error_message=None,
                     )
                     logger.info(
                         f"[{self.account_name}] Retweet successful "

@@ -242,8 +242,43 @@ class TwitterAutomation:
                 logger.debug("Regular click intercepted — using JS click")
                 self.driver.execute_script("arguments[0].click();", tweet_btn)
 
-            logger.info("Tweet posted successfully")
             self._page_delay()
+
+            # --- Post verification ---
+            # For media posts: attachments div disappears after successful send.
+            # For text posts: textarea content clears.
+            verified = False
+
+            if media_files:
+                try:
+                    WebDriverWait(self.driver, 10).until(
+                        EC.invisibility_of_element_located(
+                            (By.CSS_SELECTOR, 'div[data-testid="attachments"]')
+                        )
+                    )
+                    verified = True
+                except TimeoutException:
+                    pass
+
+            if not verified and text:
+                try:
+                    WebDriverWait(self.driver, 10).until(
+                        lambda d: not d.find_element(
+                            By.CSS_SELECTOR, 'div[data-testid="tweetTextarea_0"]'
+                        ).text.strip()
+                    )
+                    verified = True
+                except (TimeoutException, NoSuchElementException):
+                    pass
+
+            if not verified and not text and not media_files:
+                verified = True
+
+            if not verified:
+                logger.error("Post verification failed — tweet may not have been sent")
+                return False
+
+            logger.info("Tweet posted successfully")
             return True
 
         except (TimeoutException, NoSuchElementException) as exc:
@@ -326,8 +361,24 @@ class TwitterAutomation:
                 )
             )
             reply_btn.click()
-            logger.info(f"Replied to {tweet_url}")
             self._page_delay()
+
+            # --- Reply verification: textarea should clear after send ---
+            try:
+                WebDriverWait(self.driver, 10).until(
+                    lambda d: not d.find_element(
+                        By.CSS_SELECTOR, 'div[data-testid="tweetTextarea_0"]'
+                    ).text.strip()
+                )
+            except TimeoutException:
+                logger.error(
+                    f"Reply verification failed for {tweet_url} — reply may not have been sent"
+                )
+                return False
+            except NoSuchElementException:
+                pass  # textarea gone = dialog closed = success
+
+            logger.info(f"Replied to {tweet_url}")
             return True
 
         except (TimeoutException, NoSuchElementException) as exc:
@@ -405,6 +456,11 @@ class TwitterAutomation:
         Returns True if a like was performed.
         """
         try:
+            WebDriverWait(self.driver, 5).until(
+                EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, 'button[data-testid="like"]')
+                )
+            )
             like_buttons = self.driver.find_elements(
                 By.CSS_SELECTOR, 'button[data-testid="like"]'
             )
@@ -421,6 +477,8 @@ class TwitterAutomation:
             logger.debug("Liked a tweet on the feed")
             self._action_delay()
             return True
+        except TimeoutException:
+            return False
         except (NoSuchElementException, ElementClickInterceptedException, Exception) as exc:
             logger.debug(f"Could not like tweet: {exc}")
             return False
@@ -431,6 +489,11 @@ class TwitterAutomation:
         Returns True if navigation succeeded.
         """
         try:
+            WebDriverWait(self.driver, 5).until(
+                EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, 'article[data-testid="tweet"]')
+                )
+            )
             articles = self.driver.find_elements(
                 By.CSS_SELECTOR, 'article[data-testid="tweet"]'
             )

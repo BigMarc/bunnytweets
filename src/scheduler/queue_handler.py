@@ -176,7 +176,16 @@ class QueueHandler:
             duration = _time.monotonic() - start
             task.status = TaskStatus.COMPLETED
             task.result = result
-            self._log_task(task, "success", duration=duration)
+            # Callbacks return True on success, False on logical failure
+            # (e.g. post failed, no tweets to retweet). Log accurately.
+            if result:
+                self._log_task(task, "success", duration=duration)
+            else:
+                logger.warning(
+                    f"Task {task.task_type} for {task.account_name} "
+                    f"returned failure ({duration:.1f}s)"
+                )
+                self._log_task(task, "failed", duration=duration)
             return result
         except Exception as exc:
             duration = _time.monotonic() - start
