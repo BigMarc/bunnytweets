@@ -22,6 +22,17 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+# ---------------------------------------------------------------------------
+# Python version guard – SQLAlchemy 2.0.x is incompatible with Python 3.14+
+# due to typing internals changes.  Catch this early with a clear message
+# instead of letting users hit a cryptic AssertionError deep in SQLAlchemy.
+# ---------------------------------------------------------------------------
+if sys.version_info >= (3, 14):
+    sys.exit(
+        "Error: Python 3.14+ is not yet supported by SQLAlchemy 2.0.x.\n"
+        "Please use Python 3.12 or 3.13.  See https://www.python.org/downloads/"
+    )
+
 from loguru import logger
 
 # Module-level reference so APScheduler dispatchers can reach the app at
