@@ -10,6 +10,7 @@ def register_blueprints(app):
     from src.web.routes.actions import bp as actions_bp
     from src.web.routes.api import bp as api_bp
     from src.web.routes.analytics import bp as analytics_bp
+    from src.web.routes.diagnose import bp as diagnose_bp
 
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(settings_bp, url_prefix="/settings")
@@ -17,5 +18,6 @@ def register_blueprints(app):
     app.register_blueprint(generator_bp, url_prefix="/generator")
     app.register_blueprint(logs_bp, url_prefix="/logs")
     app.register_blueprint(analytics_bp, url_prefix="/analytics")
+    app.register_blueprint(diagnose_bp, url_prefix="/diagnose")
     app.register_blueprint(actions_bp, url_prefix="/api/actions")
     app.register_blueprint(api_bp, url_prefix="/api")

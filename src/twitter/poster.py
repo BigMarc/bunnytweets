@@ -154,7 +154,8 @@ class TwitterPoster:
 
         if success:
             self.db.update_account_status(
-                self.account_name, last_post=datetime.utcnow(), status="idle"
+                self.account_name, last_post=datetime.utcnow(), status="idle",
+                error_message=None,
             )
 
             # Schedule a CTA self-comment after ~1 hour

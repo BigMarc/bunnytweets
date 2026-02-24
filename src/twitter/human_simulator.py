@@ -111,98 +111,104 @@ class HumanSimulator:
         start = time.monotonic()
         end_time = start + session_minutes * 60
 
-        # Start on the home feed
         try:
-            self.auto.navigate_home()
-        except Exception as exc:
-            logger.error(f"[{self.account_name}] Could not navigate home: {exc}")
-            return summary
-
-        while time.monotonic() < end_time:
-            # Pick a random action based on weights
-            action = self._pick_action(weights)
-
+            # Start on the home feed
             try:
-                if action == "scroll":
-                    count = random.randint(1, 4)
-                    self.auto.scroll_feed(scroll_count=count)
-                    summary["scrolls"] += count
+                self.auto.navigate_home()
+            except Exception as exc:
+                logger.error(f"[{self.account_name}] Could not navigate home: {exc}")
+                return summary
 
-                elif action == "like":
-                    if session_likes < likes_remaining:
-                        if self.auto.like_tweet_on_page():
-                            summary["likes"] += 1
-                            session_likes += 1
-                            if session_likes >= likes_remaining:
-                                weights.pop("like", None)
-                    # Scroll a bit after liking
-                    self.auto.scroll_feed(scroll_count=random.randint(1, 2))
-                    summary["scrolls"] += 1
+            while time.monotonic() < end_time:
+                # Pick a random action based on weights
+                action = self._pick_action(weights)
 
-                elif action == "open_thread":
-                    if self.auto.open_random_thread():
-                        summary["threads_opened"] += 1
-                        # Browse comments in the thread
-                        self.auto.browse_thread_comments()
-                        # Maybe like something in the thread
-                        if (
-                            "like" in weights
-                            and session_likes < likes_remaining
-                            and random.random() < 0.25
-                        ):
+                try:
+                    if action == "scroll":
+                        count = random.randint(1, 4)
+                        self.auto.scroll_feed(scroll_count=count)
+                        summary["scrolls"] += count
+
+                    elif action == "like":
+                        if session_likes < likes_remaining:
                             if self.auto.like_tweet_on_page():
                                 summary["likes"] += 1
                                 session_likes += 1
-                        # Go back to the feed
+                                if session_likes >= likes_remaining:
+                                    weights.pop("like", None)
+                        # Scroll a bit after liking
+                        self.auto.scroll_feed(scroll_count=random.randint(1, 2))
+                        summary["scrolls"] += 1
+
+                    elif action == "open_thread":
+                        if self.auto.open_random_thread():
+                            summary["threads_opened"] += 1
+                            # Browse comments in the thread
+                            self.auto.browse_thread_comments()
+                            # Maybe like something in the thread
+                            if (
+                                "like" in weights
+                                and session_likes < likes_remaining
+                                and random.random() < 0.25
+                            ):
+                                if self.auto.like_tweet_on_page():
+                                    summary["likes"] += 1
+                                    session_likes += 1
+                            # Go back to the feed
+                            self.auto.navigate_home()
+
+                    elif action == "explore":
+                        self.auto.navigate_explore()
+                        summary["explore_visits"] += 1
+                        # Scroll the explore page a bit
+                        self.auto.scroll_feed(scroll_count=random.randint(2, 5))
+                        summary["scrolls"] += 1
+                        # Return home
+                        time.sleep(random.uniform(3.0, 8.0))
                         self.auto.navigate_home()
 
-                elif action == "explore":
-                    self.auto.navigate_explore()
-                    summary["explore_visits"] += 1
-                    # Scroll the explore page a bit
-                    self.auto.scroll_feed(scroll_count=random.randint(2, 5))
-                    summary["scrolls"] += 1
-                    # Return home
-                    time.sleep(random.uniform(3.0, 8.0))
-                    self.auto.navigate_home()
+                    elif action == "notifications":
+                        self.auto.navigate_notifications()
+                        summary["notification_checks"] += 1
+                        time.sleep(random.uniform(5.0, 15.0))
+                        # Scroll a bit
+                        self.auto.scroll_feed(scroll_count=random.randint(1, 3))
+                        self.auto.navigate_home()
 
-                elif action == "notifications":
-                    self.auto.navigate_notifications()
-                    summary["notification_checks"] += 1
-                    time.sleep(random.uniform(5.0, 15.0))
-                    # Scroll a bit
-                    self.auto.scroll_feed(scroll_count=random.randint(1, 3))
-                    self.auto.navigate_home()
+                except Exception as exc:
+                    logger.warning(
+                        f"[{self.account_name}] Action '{action}' failed: {exc}"
+                    )
+                    # Try to recover by navigating home
+                    try:
+                        self.auto.navigate_home()
+                    except Exception:
+                        break
 
-            except Exception as exc:
-                logger.warning(
-                    f"[{self.account_name}] Action '{action}' failed: {exc}"
-                )
-                # Try to recover by navigating home
-                try:
-                    self.auto.navigate_home()
-                except Exception:
-                    break
+                # Variable pause between actions to simulate thinking / reading
+                self._think_pause()
 
-            # Variable pause between actions to simulate thinking / reading
-            self._think_pause()
+            elapsed = (time.monotonic() - start) / 60
+            summary["duration_minutes"] = round(elapsed, 1)
 
-        elapsed = (time.monotonic() - start) / 60
-        summary["duration_minutes"] = round(elapsed, 1)
+            # Persist stats
+            self._record_session(summary)
 
-        # Persist stats
-        self._record_session(summary)
+            logger.info(
+                f"[{self.account_name}] Human simulation complete: "
+                f"{summary['duration_minutes']}min, "
+                f"{summary['likes']} likes, "
+                f"{summary['scrolls']} scrolls, "
+                f"{summary['threads_opened']} threads"
+            )
+            return summary
 
-        logger.info(
-            f"[{self.account_name}] Human simulation complete: "
-            f"{summary['duration_minutes']}min, "
-            f"{summary['likes']} likes, "
-            f"{summary['scrolls']} scrolls, "
-            f"{summary['threads_opened']} threads"
-        )
-
-        self.db.update_account_status(self.account_name, status="idle")
-        return summary
+        finally:
+            # GUARANTEE: never leave account stuck in "browsing"
+            try:
+                self.db.update_account_status(self.account_name, status="idle")
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------
     # Helpers
