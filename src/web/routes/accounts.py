@@ -1,10 +1,12 @@
 """Account management routes."""
 
 import re
+
 from flask import (
     Blueprint, render_template, request, flash, redirect, url_for,
     current_app, jsonify,
 )
+from loguru import logger
 
 bp = Blueprint("accounts", __name__)
 
@@ -178,7 +180,8 @@ def add_cta(name):
         cta = state.db.add_cta_text(name, text)
         return jsonify({"success": True, "id": cta.id, "message": "CTA text added"})
     except Exception as e:
-        return jsonify({"success": False, "message": f"Database error: {e}"}), 500
+        logger.error(f"CTA add error for {name}: {e}")
+        return jsonify({"success": False, "message": "Database error occurred"}), 500
 
 
 @bp.route("/<name>/cta/<int:cta_id>/delete", methods=["POST"])
@@ -190,7 +193,8 @@ def delete_cta(name, cta_id):
             return jsonify({"success": True, "message": "CTA text deleted"})
         return jsonify({"success": False, "message": "CTA text not found"})
     except Exception as e:
-        return jsonify({"success": False, "message": f"Database error: {e}"}), 500
+        logger.error(f"CTA delete error for {name}/{cta_id}: {e}")
+        return jsonify({"success": False, "message": "Database error occurred"}), 500
 
 
 @bp.route("/<name>/reply-template/add", methods=["POST"])
@@ -205,7 +209,8 @@ def add_reply_template(name):
         tpl = state.db.add_reply_template(name, text)
         return jsonify({"success": True, "id": tpl.id, "message": "Reply template added"})
     except Exception as e:
-        return jsonify({"success": False, "message": f"Database error: {e}"}), 500
+        logger.error(f"Reply template add error for {name}: {e}")
+        return jsonify({"success": False, "message": "Database error occurred"}), 500
 
 
 @bp.route("/<name>/reply-template/<int:tpl_id>/delete", methods=["POST"])
@@ -217,7 +222,8 @@ def delete_reply_template(name, tpl_id):
             return jsonify({"success": True, "message": "Reply template deleted"})
         return jsonify({"success": False, "message": "Reply template not found"})
     except Exception as e:
-        return jsonify({"success": False, "message": f"Database error: {e}"}), 500
+        logger.error(f"Reply template delete error for {name}/{tpl_id}: {e}")
+        return jsonify({"success": False, "message": "Database error occurred"}), 500
 
 
 def _find_account(state, name):
@@ -233,6 +239,12 @@ def _find_account_index(accounts, name):
         if acct.get("name") == name:
             return i
     return None
+
+
+def _is_valid_time(t: str) -> bool:
+    """Return True if t is a valid HH:MM time string."""
+    m = re.match(r"^(\d{1,2}):(\d{2})$", t)
+    return bool(m) and 0 <= int(m.group(1)) <= 23 and 0 <= int(m.group(2)) <= 59
 
 
 def _parse_account_form(form):
@@ -287,7 +299,8 @@ def _parse_account_form(form):
         schedule = []
         for t in times_raw.split(","):
             t = t.strip()
-            if re.match(r"^\d{1,2}:\d{2}$", t):
+            m = re.match(r"^(\d{1,2}):(\d{2})$", t)
+            if m and 0 <= int(m.group(1)) <= 23 and 0 <= int(m.group(2)) <= 59:
                 schedule.append({"time": t})
         acct["posting"]["schedule"] = schedule or [{"time": "09:00"}, {"time": "15:00"}, {"time": "20:00"}]
         acct["posting"]["default_text"] = form.get("posting.default_text", "")
@@ -333,7 +346,8 @@ def _parse_account_form(form):
             end = form.get(f"window_{i}_end", "").strip()
             if not start or not end:
                 break
-            windows.append({"start": start, "end": end})
+            if _is_valid_time(start) and _is_valid_time(end):
+                windows.append({"start": start, "end": end})
             i += 1
         acct["retweeting"]["time_windows"] = windows or [
             {"start": "09:00", "end": "12:00"},
@@ -366,7 +380,8 @@ def _parse_account_form(form):
             end = form.get(f"sim_window_{i}_end", "").strip()
             if not start or not end:
                 break
-            sim_windows.append({"start": start, "end": end})
+            if _is_valid_time(start) and _is_valid_time(end):
+                sim_windows.append({"start": start, "end": end})
             i += 1
         acct["human_simulation"]["time_windows"] = sim_windows or [
             {"start": "08:00", "end": "12:00"},
@@ -392,7 +407,8 @@ def _parse_account_form(form):
             end = form.get(f"reply_window_{i}_end", "").strip()
             if not start or not end:
                 break
-            reply_windows.append({"start": start, "end": end})
+            if _is_valid_time(start) and _is_valid_time(end):
+                reply_windows.append({"start": start, "end": end})
             i += 1
         acct["reply_to_replies"]["time_windows"] = reply_windows or [
             {"start": "09:00", "end": "22:00"},
@@ -401,8 +417,13 @@ def _parse_account_form(form):
     return acct
 
 
-def _to_int(val, default):
+def _to_int(val, default, min_val=None, max_val=None):
     try:
-        return int(val)
+        n = int(val)
+        if min_val is not None and n < min_val:
+            return default
+        if max_val is not None and n > max_val:
+            return default
+        return n
     except (ValueError, TypeError):
         return default

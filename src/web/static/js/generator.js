@@ -1,5 +1,11 @@
 // Generator page - category & title CRUD
 
+function _escapeHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+}
+
 async function deleteCategory(catId, catName) {
     if (!confirm(`Delete category "${catName}" and ALL its titles?`)) return;
     try {
@@ -58,16 +64,19 @@ async function addGlobalTarget() {
 
             const cr = data.content_rating || 'sfw';
             const list = document.getElementById('global-targets-list');
+            const gtId = Number(data.id);
             const html = `
-                <div class="d-inline-flex align-items-center me-2 mb-2 gt-item" data-gt-id="${data.id}">
+                <div class="d-inline-flex align-items-center me-2 mb-2 gt-item" data-gt-id="${gtId}">
                     <span class="badge bg-dark border border-secondary d-flex align-items-center py-2 px-3" style="font-size: 0.9rem;">
-                        ${data.username}
+                        ${_escapeHtml(data.username)}
                         <span class="badge ms-2 ${_ratingBadgeClass(cr)} gt-rating"
                               style="cursor:pointer; font-size: 0.7rem;"
-                              onclick="toggleRating(${data.id}, '${cr}', this)"
-                              title="Click to toggle SFW/NSFW">${cr.toUpperCase()}</span>
+                              data-gt-id="${gtId}" data-rating="${_escapeHtml(cr)}"
+                              onclick="toggleRating(Number(this.dataset.gtId), this.dataset.rating, this)"
+                              title="Click to toggle SFW/NSFW">${_escapeHtml(cr.toUpperCase())}</span>
                         <button type="button" class="btn-close btn-close-white ms-2" style="font-size: 0.6rem;"
-                                onclick="deleteGlobalTarget(${data.id}, this)"></button>
+                                data-gt-id="${gtId}"
+                                onclick="deleteGlobalTarget(Number(this.dataset.gtId), this)"></button>
                     </span>
                 </div>`;
             list.insertAdjacentHTML('beforeend', html);
@@ -98,7 +107,8 @@ async function toggleRating(targetId, currentRating, el) {
         if (data.success) {
             el.textContent = newRating.toUpperCase();
             el.className = `badge ms-2 ${_ratingBadgeClass(newRating)} gt-rating`;
-            el.setAttribute('onclick', `toggleRating(${targetId}, '${newRating}', this)`);
+            el.dataset.rating = newRating;
+            el.setAttribute('onclick', `toggleRating(Number(this.dataset.gtId), this.dataset.rating, this)`);
             showToast(`Target set to ${newRating.toUpperCase()}`, 'success');
         } else {
             showToast(data.message || 'Failed to update rating', 'danger');

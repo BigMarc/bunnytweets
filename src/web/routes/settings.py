@@ -119,15 +119,21 @@ def save():
     return redirect(url_for("settings.index"))
 
 
-def _to_int(val, default):
+def _to_int(val, default, min_val=0, max_val=100000):
     try:
-        return int(val)
+        n = int(val)
+        if n < min_val or n > max_val:
+            return default
+        return n
     except (ValueError, TypeError):
         return default
 
 
-def _to_float(val, default):
+def _to_float(val, default, min_val=0.0, max_val=100000.0):
     try:
-        return float(val)
+        f = float(val)
+        if f < min_val or f > max_val:
+            return default
+        return f
     except (ValueError, TypeError):
         return default

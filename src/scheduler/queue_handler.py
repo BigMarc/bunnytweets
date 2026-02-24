@@ -51,7 +51,7 @@ class QueueHandler:
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
         self._queue: Queue[Task] = Queue()
         self._running: dict[str, Future] = {}
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._stop_event = threading.Event()
         self._task_done = threading.Condition(self._lock)
         self._worker_thread: threading.Thread | None = None
@@ -245,7 +245,7 @@ class QueueHandler:
             return False
         unpause_at = self._paused_accounts[account_name]
         if datetime.utcnow() >= unpause_at:
-            del self._paused_accounts[account_name]
+            self._paused_accounts.pop(account_name, None)
             if self._db:
                 self._db.update_account_status(
                     account_name, status="idle", error_message=None

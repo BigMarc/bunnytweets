@@ -14,6 +14,7 @@
         {% endif %}
 
         <form method="POST" action="/settings">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <!-- General -->
             <div class="card border-secondary mb-3">
                 <div class="card-header"><i class="bi bi-sliders me-2"></i>General</div>

@@ -141,6 +141,10 @@ def build_account(row: dict, row_num: int) -> dict | None:
     errors = []
     if not name:
         errors.append("name")
+    elif len(name) > 100:
+        errors.append("name (too long, max 100 chars)")
+    elif not re.match(r'^[\w\s\-()@.]+$', name):
+        errors.append("name (invalid characters)")
     if not username:
         errors.append("username")
     if not profile_id:

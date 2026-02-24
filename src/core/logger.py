@@ -56,23 +56,34 @@ def setup_logging(
     )
 
 
+_account_handler_ids: dict[str, int] = {}
+
+
 def get_account_logger(account_name: str, log_dir: str = "data/logs",
                        retention_days: int = 30):
-    """Return a logger bound to a specific account, writing to its own file."""
+    """Return a logger bound to a specific account, writing to its own file.
+
+    Only registers a new handler the first time per account name to avoid
+    duplicate log entries when called repeatedly (e.g. after auto-recovery).
+    """
+    if account_name in _account_handler_ids:
+        return logger.bind(account=account_name)
+
     log_path = Path(log_dir)
     log_path.mkdir(parents=True, exist_ok=True)
 
     account_logger = logger.bind(account=account_name)
-    logger.add(
+    handler_id = logger.add(
         str(log_path / f"{account_name}_{{time:YYYY-MM-DD}}.log"),
         level="DEBUG",
         rotation="00:00",
         retention=f"{retention_days} days",
-        filter=lambda record: record["extra"].get("account") == account_name,
+        filter=lambda record, _name=account_name: record["extra"].get("account") == _name,
         format=(
             "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | "
             "{name}:{function}:{line} - {message}"
         ),
         encoding="utf-8",
     )
+    _account_handler_ids[account_name] = handler_id
     return account_logger

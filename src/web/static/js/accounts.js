@@ -1,17 +1,16 @@
 // Accounts page - toggle, delete, dynamic form rows
 
 // Toggle account enabled/disabled
-async function toggleAccount(name) {
+async function toggleAccount(el) {
+    const name = el.dataset.name;
     try {
-        const resp = await fetch(`/accounts/${name}/toggle`, { method: 'POST' });
+        const resp = await fetch(`/accounts/${encodeURIComponent(name)}/toggle`, { method: 'POST' });
         const data = await resp.json();
         if (data.success) {
             showToast(data.message, 'success');
         } else {
             showToast(data.message, 'danger');
-            // Revert toggle
-            const toggle = document.getElementById(`toggle-${name}`);
-            if (toggle) toggle.checked = !toggle.checked;
+            el.checked = !el.checked;
         }
     } catch (e) {
         showToast('Failed to toggle account', 'danger');
@@ -25,7 +24,7 @@ function deleteAccount(name) {
     const form = document.getElementById('delete-form');
 
     if (nameEl) nameEl.textContent = name;
-    if (form) form.action = `/accounts/${name}/delete`;
+    if (form) form.action = `/accounts/${encodeURIComponent(name)}/delete`;
 
     const bsModal = new bootstrap.Modal(modal);
     bsModal.show();

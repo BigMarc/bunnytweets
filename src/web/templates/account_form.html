@@ -10,6 +10,7 @@
         </h4>
 
         <form method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <!-- Basic Info -->
             {% set current_platform = account.get('platform', 'twitter') if account else 'twitter' %}
             {% set pcfg = account.get(current_platform, account.get('twitter', {})) if account else {} %}
@@ -487,7 +488,7 @@
 })();
 
 // CTA management (AJAX, not part of the main form submit)
-const accountName = "{{ account.name if account else '' }}";
+const accountName = {{ (account.name if account else '') | tojson }};
 
 async function addCta() {
     if (!accountName) {
@@ -512,9 +513,9 @@ async function addCta() {
 
             const list = document.getElementById('cta-list');
             const html = `
-                <div class="d-flex align-items-start mb-2 cta-item" data-cta-id="${data.id}">
-                    <span class="form-control form-control-sm bg-dark text-light me-2" style="min-height:auto;">${text}</span>
-                    <button type="button" class="btn btn-sm btn-outline-danger flex-shrink-0" onclick="deleteCta(${data.id}, this)">
+                <div class="d-flex align-items-start mb-2 cta-item" data-cta-id="${Number(data.id)}">
+                    <span class="form-control form-control-sm bg-dark text-light me-2" style="min-height:auto;">${_escapeHtml(text)}</span>
+                    <button type="button" class="btn btn-sm btn-outline-danger flex-shrink-0" onclick="deleteCta(${Number(data.id)}, this)">
                         <i class="bi bi-trash"></i>
                     </button>
                 </div>`;
@@ -570,9 +571,9 @@ async function addReplyTemplate() {
 
             const list = document.getElementById('reply-template-list');
             const html = `
-                <div class="d-flex align-items-start mb-2 reply-tpl-item" data-tpl-id="${data.id}">
-                    <span class="form-control form-control-sm bg-dark text-light me-2" style="min-height:auto;">${text}</span>
-                    <button type="button" class="btn btn-sm btn-outline-danger flex-shrink-0" onclick="deleteReplyTemplate(${data.id}, this)">
+                <div class="d-flex align-items-start mb-2 reply-tpl-item" data-tpl-id="${Number(data.id)}">
+                    <span class="form-control form-control-sm bg-dark text-light me-2" style="min-height:auto;">${_escapeHtml(text)}</span>
+                    <button type="button" class="btn btn-sm btn-outline-danger flex-shrink-0" onclick="deleteReplyTemplate(${Number(data.id)}, this)">
                         <i class="bi bi-trash"></i>
                     </button>
                 </div>`;
