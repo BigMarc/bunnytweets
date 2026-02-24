@@ -16,16 +16,17 @@ sqlalchemy==2.0.23
 alembic==1.13.0
 
 # Configuration & Utils
-pyyaml==6.0.1
-python-dotenv==1.0.0
-requests==2.31.0
-pillow==10.1.0
+pyyaml>=6.0.2
+python-dotenv>=1.0.0
+requests>=2.31.0
+pillow>=10.2.0
 
 # Logging & Monitoring
 loguru==0.7.2
 
 # Web Dashboard
-flask==3.0.0
+flask>=3.0.0
+flask-wtf>=1.2.0
 
 # Desktop App (system tray)
 pystray>=0.19.5

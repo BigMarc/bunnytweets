@@ -22,6 +22,7 @@
             <div class="card-header"><i class="bi bi-plus-lg me-2"></i>Add New Title</div>
             <div class="card-body">
                 <form method="POST" action="/generator/title/add">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="row g-3">
                         <div class="col-md-8">
                             <label class="form-label">Title Text</label>
@@ -51,6 +52,7 @@
             <div class="card-header"><i class="bi bi-folder-plus me-2"></i>Add Category</div>
             <div class="card-body">
                 <form method="POST" action="/generator/category/add">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-2">
                         <label class="form-label">Category Name</label>
                         <input type="text" class="form-control" name="name"
@@ -72,6 +74,7 @@
             <div class="card-header"><i class="bi bi-upload me-2"></i>Bulk Import Titles</div>
             <div class="card-body">
                 <form method="POST" action="/generator/title/bulk-add">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="row g-3">
                         <div class="col-md-9">
                             <label class="form-label">Titles (one per line)</label>
@@ -123,7 +126,8 @@
                                 {% set rating = t.content_rating or 'sfw' %}
                                 <span class="badge ms-2 {{ 'bg-success' if rating == 'sfw' else 'bg-danger' }} gt-rating"
                                       style="cursor:pointer; font-size: 0.7rem;"
-                                      onclick="toggleRating({{ t.id }}, '{{ rating }}', this)"
+                                      data-gt-id="{{ t.id }}" data-rating="{{ rating }}"
+                                      onclick="toggleRating(Number(this.dataset.gtId), this.dataset.rating, this)"
                                       title="Click to toggle SFW/NSFW">{{ rating|upper }}</span>
                                 <button type="button" class="btn-close btn-close-white ms-2" style="font-size: 0.6rem;"
                                         onclick="deleteGlobalTarget({{ t.id }}, this)"></button>
@@ -164,7 +168,8 @@
                 </div>
                 {% if cat.name != 'Global' %}
                 <button class="btn btn-sm btn-outline-danger"
-                        onclick="deleteCategory({{ cat.id }}, '{{ cat.name }}')">
+                        data-cat-id="{{ cat.id }}" data-cat-name="{{ cat.name }}"
+                        onclick="deleteCategory(Number(this.dataset.catId), this.dataset.catName)">
                     <i class="bi bi-trash"></i>
                 </button>
                 {% endif %}

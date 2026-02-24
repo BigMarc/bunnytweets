@@ -55,9 +55,9 @@
                     <td>
                         <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox"
-                                   id="toggle-{{ acct.name }}"
                                    {% if acct.get('enabled', True) %}checked{% endif %}
-                                   onchange="toggleAccount('{{ acct.name }}')">
+                                   data-name="{{ acct.name }}"
+                                   onchange="toggleAccount(this)">
                         </div>
                     </td>
                     <td>
@@ -85,11 +85,12 @@
                         {% endif %}
                     </td>
                     <td class="text-end">
-                        <a href="/accounts/{{ acct.name }}/edit" class="btn btn-sm btn-outline-primary me-1">
+                        <a href="{{ url_for('accounts.edit_form', name=acct.name) }}" class="btn btn-sm btn-outline-primary me-1">
                             <i class="bi bi-pencil"></i>
                         </a>
                         <button class="btn btn-sm btn-outline-danger"
-                                onclick="deleteAccount('{{ acct.name }}')">
+                                data-name="{{ acct.name }}"
+                                onclick="deleteAccount(this.dataset.name)">
                             <i class="bi bi-trash"></i>
                         </button>
                     </td>
@@ -123,6 +124,7 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <form id="delete-form" method="POST" style="display:inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn btn-danger">Delete</button>
                 </form>
             </div>

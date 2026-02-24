@@ -54,12 +54,22 @@ def dispatch_job(account_name: str, task_type: str) -> None:
         return
 
     attr, method_name = entry
-    component = getattr(app, attr).get(account_name)
-    if component is None:
-        logger.warning(f"dispatch_job: no {task_type} component for {account_name!r}")
-        return
-
-    app._enqueue_task(account_name, task_type, getattr(component, method_name))
+    try:
+        components = getattr(app, attr, None)
+        if components is None:
+            logger.warning(f"dispatch_job: app has no attribute {attr!r}")
+            return
+        component = components.get(account_name)
+        if component is None:
+            logger.warning(f"dispatch_job: no {task_type} component for {account_name!r}")
+            return
+        method = getattr(component, method_name, None)
+        if method is None:
+            logger.error(f"dispatch_job: {type(component).__name__} has no method {method_name!r}")
+            return
+        app._enqueue_task(account_name, task_type, method)
+    except Exception as exc:
+        logger.error(f"dispatch_job({account_name!r}, {task_type!r}) failed: {exc}")
 
 
 def dispatch_health_check() -> None:
@@ -523,9 +533,9 @@ class Application:
                     self._failed_accounts.append(acct)
                     fut.cancel()
         finally:
-            # Don't wait for timed-out threads — they'll finish in the
-            # background instead of blocking the engine startup forever.
-            pool.shutdown(wait=False)
+            # Give timed-out threads a grace period to finish cleanly,
+            # but don't block forever if they're stuck.
+            pool.shutdown(wait=True, cancel_futures=True)
 
         if not active_accounts:
             self.shutdown()
