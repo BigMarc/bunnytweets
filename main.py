@@ -571,14 +571,13 @@ class Application:
         # reset transient account statuses from previous (possibly crashed) run.
         self._preflight_cleanup(accounts)
 
-        # Set up each account — stagger browser starts so GoLogin's local
-        # API isn't overwhelmed (max 3 concurrent profile launches).
+        # Set up all accounts concurrently — open every profile at once.
         from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
 
         setup_timeout = 600  # seconds — hard cap on total account setup time
         active_accounts = []
         scheduler_started = False
-        pool = ThreadPoolExecutor(max_workers=min(len(accounts), 3))
+        pool = ThreadPoolExecutor(max_workers=len(accounts))
         future_to_acct = {
             pool.submit(self.setup_account, acct): acct for acct in accounts
         }
@@ -603,10 +602,7 @@ class Application:
                             )
                             self._ready.set()
                             scheduler_started = True
-                            logger.info(
-                                "Engine ready — first account active, "
-                                "remaining accounts setting up in background"
-                            )
+                            logger.info("Engine ready — first account active")
                     else:
                         self._failed_accounts.append(acct)
                 except Exception as exc:
