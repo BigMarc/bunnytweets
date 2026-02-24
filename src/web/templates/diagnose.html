@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}System Diagnosis - BunnyTweets{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-3">
+    <h4 class="mb-0"><i class="bi bi-heart-pulse me-2"></i>System Diagnosis</h4>
+    <span class="badge ms-3 fs-6
+        {% if report.overall_status == 'ok' %}bg-success
+        {% elif report.overall_status == 'warn' %}bg-warning text-dark
+        {% else %}bg-danger{% endif %}">
+        {{ report.overall_status | upper }}
+    </span>
+    <small class="text-muted ms-3">{{ report.timestamp }} &mdash; {{ report.duration_ms | round(0) | int }}ms</small>
+    <button class="btn btn-sm btn-outline-secondary ms-auto" id="btn-rerun">
+        <i class="bi bi-arrow-clockwise me-1"></i>Re-run
+    </button>
+</div>
+
+<div id="report-container">
+{% for sub in report.subsystems %}
+<div class="card border-secondary mb-3">
+    <div class="card-header d-flex align-items-center">
+        {% if sub.worst_status == 'ok' %}
+            <i class="bi bi-check-circle-fill text-success me-2"></i>
+        {% elif sub.worst_status == 'warn' %}
+            <i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>
+        {% else %}
+            <i class="bi bi-x-circle-fill text-danger me-2"></i>
+        {% endif %}
+        <strong>{{ sub.subsystem }}</strong>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-sm table-dark mb-0">
+            <tbody>
+            {% for chk in sub.checks %}
+                <tr>
+                    <td style="width: 36px" class="text-center">
+                        {% if chk.status == 'ok' %}
+                            <i class="bi bi-check-lg text-success"></i>
+                        {% elif chk.status == 'warn' %}
+                            <i class="bi bi-exclamation-lg text-warning"></i>
+                        {% else %}
+                            <i class="bi bi-x-lg text-danger"></i>
+                        {% endif %}
+                    </td>
+                    <td style="width: 220px"><code>{{ chk.name }}</code></td>
+                    <td>{{ chk.message }}
+                        {% if chk.details %}
+                            {% for k, v in chk.details.items() %}
+                                {% if v %}
+                                <br><small class="text-muted">{{ k }}: {{ v }}</small>
+                                {% endif %}
+                            {% endfor %}
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endfor %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('btn-rerun').addEventListener('click', async function() {
+    const btn = this;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Running...';
+    try {
+        const resp = await fetch('/diagnose/api/run');
+        const data = await resp.json();
+        // Reload page to render new report server-side
+        window.location.reload();
+    } catch (e) {
+        showToast('Diagnosis failed: ' + e.message, 'danger');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>Re-run';
+    }
+});
+</script>
+{% endblock %}
