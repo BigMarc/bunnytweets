@@ -88,8 +88,11 @@ class DriveClient:
             "Expected a service-account JSON or an OAuth desktop-app JSON."
         )
 
-    def _list_subfolder_ids(self, folder_id: str, page_size: int = 100) -> list[str]:
+    def _list_subfolder_ids(self, folder_id: str, page_size: int = 100, _depth: int = 10) -> list[str]:
         """Recursively discover all subfolder IDs under *folder_id*."""
+        if _depth <= 0:
+            logger.warning(f"Max folder depth reached scanning {folder_id}, stopping recursion")
+            return []
         query = (
             f"'{folder_id}' in parents and trashed = false "
             f"and mimeType = 'application/vnd.google-apps.folder'"
@@ -114,7 +117,7 @@ class DriveClient:
                 subfolder_ids.append(f["id"])
                 logger.debug(f"Discovered subfolder: {f['name']} ({f['id']})")
                 # Recurse into this subfolder
-                subfolder_ids.extend(self._list_subfolder_ids(f["id"], page_size))
+                subfolder_ids.extend(self._list_subfolder_ids(f["id"], page_size, _depth - 1))
 
             page_token = results.get("nextPageToken")
             if not page_token:

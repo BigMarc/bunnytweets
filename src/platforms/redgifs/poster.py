@@ -176,7 +176,7 @@ class RedGifsPoster:
         posting_cfg = self.config.get("posting", {})
         categories = posting_cfg.get("title_categories", [])
         if categories:
-            title = self.db.get_random_title(categories)
+            title = self.db.get_random_title(categories, account_name=self.account_name)
             if title:
                 return title
         return posting_cfg.get("default_text", "")

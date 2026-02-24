@@ -163,17 +163,17 @@
             </div>
             <div class="card-footer">
                 <button class="btn btn-sm btn-outline-primary me-1"
-                        onclick="triggerPost('{{ acct.name }}')"
+                        onclick="triggerPost({{ acct.name | tojson }})"
                         {% if not engine_running or not acct.posting_enabled %}disabled{% endif %}>
                     <i class="bi bi-send me-1"></i>Post Now
                 </button>
                 <button class="btn btn-sm btn-outline-info me-1"
-                        onclick="triggerRetweet('{{ acct.name }}')"
+                        onclick="triggerRetweet({{ acct.name | tojson }})"
                         {% if not engine_running or not acct.retweeting_enabled %}disabled{% endif %}>
                     <i class="bi bi-repeat me-1"></i>{% if acct.platform == 'threads' %}Repost Now{% else %}Retweet Now{% endif %}
                 </button>
                 <button class="btn btn-sm btn-outline-secondary"
-                        onclick="triggerSimulation('{{ acct.name }}')"
+                        onclick="triggerSimulation({{ acct.name | tojson }})"
                         {% if not engine_running or not acct.sim_enabled %}disabled{% endif %}>
                     <i class="bi bi-person-walking me-1"></i>Browse Now
                 </button>

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from urllib.parse import urlparse
 
 import requests
@@ -14,7 +15,7 @@ def _retry_session() -> requests.Session:
     retries = Retry(
         total=3,
         backoff_factor=1,
-        status_forcelist=[500, 502, 503, 504],
+        status_forcelist=[429, 500, 502, 503, 504],
         allowed_methods=["GET", "POST"],
     )
     adapter = HTTPAdapter(max_retries=retries)
@@ -95,36 +96,75 @@ class GoLoginClient:
 
         so that ProfileManager can connect Selenium identically for both
         GoLogin and Dolphin Anty.
+
+        Retries up to 3 times on:
+        - Read timeouts (GoLogin overloaded with many simultaneous starts)
+        - Empty wsUrl responses (profile still initialising)
         """
         logger.info(f"Starting GoLogin profile {profile_id} (headless={headless})")
-        # sync=False: skip cloud sync — near-instant for profiles that are
-        # already running or were recently opened in GoLogin.
         json_data: dict = {"profileId": profile_id, "sync": False}
-
         url = f"{self.base_url}/browser/start-profile"
-        logger.debug(f"POST {url} body={json_data}")
-        resp = self._session.post(url, headers=self._post_headers, json=json_data, timeout=60)
-        if not resp.ok:
-            logger.error(f"POST start-profile failed ({resp.status_code}): {resp.text}")
-        resp.raise_for_status()
-        data = resp.json()
 
-        if data.get("status") != "success":
-            raise RuntimeError(f"Failed to start GoLogin profile {profile_id}: {data}")
+        max_attempts = 4  # 1 initial + 3 retries
+        for attempt in range(1, max_attempts + 1):
+            try:
+                logger.debug(f"POST {url} body={json_data} (attempt {attempt}/{max_attempts})")
+                resp = self._session.post(
+                    url, headers=self._post_headers, json=json_data,
+                    timeout=(10, 120),  # (connect, read) — 120s read for slow starts
+                )
+                if not resp.ok:
+                    logger.error(f"POST start-profile failed ({resp.status_code}): {resp.text}")
+                resp.raise_for_status()
+                data = resp.json()
 
-        ws_url = data.get("wsUrl", "")
-        if not ws_url:
-            raise RuntimeError(
-                f"No wsUrl in GoLogin start-profile response for {profile_id}: {data}"
-            )
+                if data.get("status") != "success":
+                    raise RuntimeError(
+                        f"Failed to start GoLogin profile {profile_id}: {data}"
+                    )
 
-        result = self._parse_ws_url(ws_url)
-        if not result.get("port"):
-            raise RuntimeError(
-                f"Could not extract debug port from wsUrl '{ws_url}' for profile {profile_id}"
-            )
+                ws_url = data.get("wsUrl", "")
+                if not ws_url:
+                    # GoLogin sometimes returns success with empty wsUrl while
+                    # the profile is still initialising — retry after a delay.
+                    if attempt < max_attempts:
+                        delay = 5 * attempt
+                        logger.warning(
+                            f"GoLogin returned empty wsUrl for {profile_id} "
+                            f"(attempt {attempt}/{max_attempts}). "
+                            f"Retrying in {delay}s..."
+                        )
+                        time.sleep(delay)
+                        continue
+                    raise RuntimeError(
+                        f"No wsUrl in GoLogin start-profile response for "
+                        f"{profile_id} after {max_attempts} attempts: {data}"
+                    )
 
-        return result
+                result = self._parse_ws_url(ws_url)
+                if not result.get("port"):
+                    raise RuntimeError(
+                        f"Could not extract debug port from wsUrl '{ws_url}' "
+                        f"for profile {profile_id}"
+                    )
+
+                return result
+
+            except (requests.exceptions.ReadTimeout,
+                    requests.exceptions.ConnectionError) as exc:
+                if attempt < max_attempts:
+                    delay = 5 * attempt
+                    logger.warning(
+                        f"GoLogin start-profile timed out for {profile_id} "
+                        f"(attempt {attempt}/{max_attempts}): {exc}. "
+                        f"Retrying in {delay}s..."
+                    )
+                    time.sleep(delay)
+                else:
+                    raise RuntimeError(
+                        f"GoLogin start-profile failed for {profile_id} after "
+                        f"{max_attempts} attempts: {exc}"
+                    ) from exc
 
     def _parse_ws_url(self, ws_url: str) -> dict:
         """Extract port and ws_endpoint from a GoLogin wsUrl string."""

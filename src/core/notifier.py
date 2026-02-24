@@ -58,7 +58,7 @@ class DiscordNotifier:
                 url = f"{url}{sep}thread_id={self.thread_id}"
 
             resp = requests.post(url, json=payload, timeout=10)
-            if resp.status_code not in (200, 204):
+            if not (200 <= resp.status_code < 300):
                 logger.warning(f"Discord webhook returned {resp.status_code}: {resp.text[:200]}")
         except Exception as exc:
             logger.warning(f"Discord notification failed: {exc}")

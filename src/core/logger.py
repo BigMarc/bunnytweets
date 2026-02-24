@@ -1,9 +1,12 @@
+import re
 import sys
+import threading
 from pathlib import Path
 
 from loguru import logger
 
 _logging_configured = False
+_logging_lock = threading.Lock()
 
 
 def setup_logging(
@@ -19,9 +22,10 @@ def setup_logging(
     removes and re-adds handlers; subsequent calls are no-ops.
     """
     global _logging_configured
-    if _logging_configured:
-        return
-    _logging_configured = True
+    with _logging_lock:
+        if _logging_configured:
+            return
+        _logging_configured = True
 
     log_path = Path(log_dir)
     log_path.mkdir(parents=True, exist_ok=True)
@@ -57,6 +61,12 @@ def setup_logging(
 
 
 _account_handler_ids: dict[str, int] = {}
+_account_lock = threading.Lock()
+
+
+def _safe_filename(name: str) -> str:
+    """Sanitize account name for use in file paths."""
+    return re.sub(r"[^\w\-.]", "_", name)
 
 
 def get_account_logger(account_name: str, log_dir: str = "data/logs",
@@ -66,24 +76,26 @@ def get_account_logger(account_name: str, log_dir: str = "data/logs",
     Only registers a new handler the first time per account name to avoid
     duplicate log entries when called repeatedly (e.g. after auto-recovery).
     """
-    if account_name in _account_handler_ids:
-        return logger.bind(account=account_name)
+    with _account_lock:
+        if account_name in _account_handler_ids:
+            return logger.bind(account=account_name)
 
-    log_path = Path(log_dir)
-    log_path.mkdir(parents=True, exist_ok=True)
+        log_path = Path(log_dir)
+        log_path.mkdir(parents=True, exist_ok=True)
 
-    account_logger = logger.bind(account=account_name)
-    handler_id = logger.add(
-        str(log_path / f"{account_name}_{{time:YYYY-MM-DD}}.log"),
-        level="DEBUG",
-        rotation="00:00",
-        retention=f"{retention_days} days",
-        filter=lambda record, _name=account_name: record["extra"].get("account") == _name,
-        format=(
-            "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | "
-            "{name}:{function}:{line} - {message}"
-        ),
-        encoding="utf-8",
-    )
-    _account_handler_ids[account_name] = handler_id
-    return account_logger
+        safe_name = _safe_filename(account_name)
+        account_logger = logger.bind(account=account_name)
+        handler_id = logger.add(
+            str(log_path / f"{safe_name}_{{time:YYYY-MM-DD}}.log"),
+            level="DEBUG",
+            rotation="00:00",
+            retention=f"{retention_days} days",
+            filter=lambda record, _name=account_name: record["extra"].get("account") == _name,
+            format=(
+                "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | "
+                "{name}:{function}:{line} - {message}"
+            ),
+            encoding="utf-8",
+        )
+        _account_handler_ids[account_name] = handler_id
+        return account_logger
