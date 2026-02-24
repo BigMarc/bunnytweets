@@ -62,7 +62,7 @@ class AppState:
                 sys.path.insert(0, str(self.base_dir))
                 from main import Application
 
-                app = Application()
+                app = Application(quiet=True)
                 with self._lock:
                     self._application = app
 
