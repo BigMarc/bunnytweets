@@ -100,6 +100,8 @@
                 <span class="badge status-badge-{{ acct.name }}" data-status="{{ acct.status }}">
                     {% if acct.status == 'running' %}
                         <span class="badge bg-primary">Running</span>
+                    {% elif acct.status == 'setting_up' %}
+                        <span class="badge bg-info">Setting Up</span>
                     {% elif acct.status == 'browsing' %}
                         <span class="badge bg-info">Browsing</span>
                     {% elif acct.status == 'error' %}

@@ -90,6 +90,7 @@ function updateAccountCard(acct, engineRunning) {
     if (badgeEl) {
         const badges = {
             'running': '<span class="badge bg-primary">Running</span>',
+            'setting_up': '<span class="badge bg-info">Setting Up</span>',
             'browsing': '<span class="badge bg-info">Browsing</span>',
             'error': '<span class="badge bg-danger">Error</span>',
             'paused': '<span class="badge bg-warning text-dark">Paused</span>',
@@ -129,7 +130,7 @@ function updateAccountCard(acct, engineRunning) {
 
     // Dynamically enable/disable action buttons based on engine state
     // AND per-account status (disable if error or paused).
-    const accountDisabled = !engineRunning || acct.status === 'error' || acct.status === 'paused';
+    const accountDisabled = !engineRunning || acct.status === 'error' || acct.status === 'paused' || acct.status === 'setting_up';
     const buttons = document.querySelectorAll(`button[data-account="${CSS.escape(name)}"]`);
     buttons.forEach(btn => {
         btn.disabled = accountDisabled;

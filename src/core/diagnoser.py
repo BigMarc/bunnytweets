@@ -690,6 +690,30 @@ class SystemDiagnoser:
                     details=_account_details(status_obj),
                 ))
 
+        # Check job coverage: idle accounts should have scheduled jobs
+        if self._app:
+            try:
+                jobs = self._app.job_manager.get_jobs_summary()
+                job_ids = {j.get("id", "") for j in jobs}
+
+                for acct in accounts:
+                    name = acct.get("name", "unknown")
+                    status_obj = db.get_account_status(name)
+                    if status_obj and status_obj.status == "idle":
+                        has_jobs = any(name in jid for jid in job_ids)
+                        if not has_jobs:
+                            sub.checks.append(Check(
+                                name=f"Jobs: {name}",
+                                status="warn",
+                                message=(
+                                    "Account is idle but has NO scheduled jobs — "
+                                    "tasks will never execute. Check posting schedule "
+                                    "and retweet time_windows in config."
+                                ),
+                            ))
+            except Exception:
+                pass
+
         # Summary
         total = len(accounts)
         healthy = total - error_count - paused_count - stuck_count

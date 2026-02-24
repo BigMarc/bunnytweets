@@ -97,15 +97,23 @@ class GoLoginClient:
         so that ProfileManager can connect Selenium identically for both
         GoLogin and Dolphin Anty.
 
-        Retries up to 3 times on:
+        Retries up to 5 times on:
         - Read timeouts (GoLogin overloaded with many simultaneous starts)
         - Empty wsUrl responses (profile still initialising)
+
+        Uses ``sync=True`` on the first attempt so GoLogin blocks until the
+        profile is fully ready.  On subsequent attempts (empty wsUrl or
+        timeout) switches to ``sync=False`` polling — the profile is already
+        launching, we just need GoLogin to report the debug port.
         """
         logger.info(f"Starting GoLogin profile {profile_id} (headless={headless})")
-        json_data: dict = {"profileId": profile_id, "sync": False}
         url = f"{self.base_url}/browser/start-profile"
 
-        max_attempts = 4  # 1 initial + 3 retries
+        # Phase 1: sync=True makes GoLogin block until the profile is ready,
+        # guaranteeing a populated wsUrl when it works.
+        json_data: dict = {"profileId": profile_id, "sync": True}
+
+        max_attempts = 6  # 1 initial + 5 retries
         for attempt in range(1, max_attempts + 1):
             try:
                 logger.debug(f"POST {url} body={json_data} (attempt {attempt}/{max_attempts})")
@@ -125,16 +133,18 @@ class GoLoginClient:
 
                 ws_url = data.get("wsUrl", "")
                 if not ws_url:
-                    # GoLogin sometimes returns success with empty wsUrl while
-                    # the profile is still initialising — retry after a delay.
+                    # Phase 2: Profile launched but wsUrl not ready yet.
+                    # Switch to sync=False polling — the profile is already
+                    # running, we just need GoLogin to tell us the port.
                     if attempt < max_attempts:
                         delay = 5 * attempt
                         logger.warning(
                             f"GoLogin returned empty wsUrl for {profile_id} "
                             f"(attempt {attempt}/{max_attempts}). "
-                            f"Retrying in {delay}s..."
+                            f"Polling in {delay}s..."
                         )
                         time.sleep(delay)
+                        json_data = {"profileId": profile_id, "sync": False}
                         continue
                     raise RuntimeError(
                         f"No wsUrl in GoLogin start-profile response for "
@@ -160,6 +170,9 @@ class GoLoginClient:
                         f"Retrying in {delay}s..."
                     )
                     time.sleep(delay)
+                    # After a timeout the profile may already be running —
+                    # switch to sync=False to avoid re-triggering a full start.
+                    json_data = {"profileId": profile_id, "sync": False}
                 else:
                     raise RuntimeError(
                         f"GoLogin start-profile failed for {profile_id} after "
