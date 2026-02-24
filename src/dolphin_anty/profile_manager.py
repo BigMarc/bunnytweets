@@ -197,3 +197,33 @@ class ProfileManager:
                 logger.debug(f"Pre-flight: profile {pid} stop skipped ({exc})")
         # Clear any stale driver references
         self._drivers.clear()
+
+    @staticmethod
+    def _wait_for_cdp(port: int, profile_id: str, timeout: int = 30) -> None:
+        """Wait until the browser's CDP endpoint responds on *port*.
+
+        Probes ``GET http://127.0.0.1:{port}/json/version`` repeatedly.
+        This confirms the browser process is fully started and accepting
+        DevTools Protocol connections before Selenium tries to attach.
+        """
+        url = f"http://127.0.0.1:{port}/json/version"
+        deadline = time.monotonic() + timeout
+        attempt = 0
+        while time.monotonic() < deadline:
+            attempt += 1
+            try:
+                resp = requests.get(url, timeout=3)
+                if resp.ok:
+                    logger.debug(
+                        f"CDP on port {port} responding "
+                        f"(profile {profile_id}, attempt {attempt})"
+                    )
+                    return
+            except Exception:
+                pass
+            time.sleep(2)
+
+        logger.warning(
+            f"CDP on port {port} did not respond within {timeout}s "
+            f"(profile {profile_id}) — Selenium may fail to attach"
+        )

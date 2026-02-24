@@ -163,11 +163,9 @@ class Application:
         # Discord notifier
         self.notifier = DiscordNotifier.from_config(self.config.discord)
 
-        # Scheduler & Queue (persist jobs to SQLite so they survive restarts)
-        db_path = str(self.config.resolve_path(self.config.database_path))
+        # Scheduler & Queue
         self.job_manager = JobManager(
             timezone=self.config.timezone,
-            db_url=f"sqlite:///{db_path}",
         )
         self.queue = QueueHandler(
             error_handling=self.config.error_handling,
@@ -571,57 +569,14 @@ class Application:
         # reset transient account statuses from previous (possibly crashed) run.
         self._preflight_cleanup(accounts)
 
-        # Start the scheduler and queue immediately so the engine is
-        # responsive while profiles are still opening.
-        self.queue.start()
-        self.job_manager.start()
-        self.job_manager.add_health_check(
-            dispatch_health_check, interval_minutes=5
-        )
-        self.job_manager.add_cta_check_job(
-            dispatch_cta_check, interval_minutes=5
-        )
-        self._ready.set()
-        logger.info("Engine ready — setting up accounts")
-
-        # Phase 1 — Start ALL GoLogin profiles via serialized API calls.
-        # GoLogin's local API is single-threaded, so we send start commands
-        # one at a time.  GoLogin opens all profiles in parallel internally.
+        # Set up each account — stagger browser starts so GoLogin's local
+        # API isn't overwhelmed (max 3 concurrent profile launches).
         from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
 
-        for acct in accounts:
-            self.db.update_account_status(
-                acct["name"], status="setting_up", error_message=None
-            )
-
-        # Build profile_id → account mapping
-        pid_to_acct: dict[str, dict] = {}
-        for acct in accounts:
-            pcfg = self._get_platform_cfg(acct)
-            pid = pcfg.get("profile_id") or pcfg.get("dolphin_profile_id")
-            pid_to_acct[pid] = acct
-
-        # If the client supports bulk start (GoLogin), use it.
-        # Otherwise fall back to starting one at a time in setup_account.
-        ready_profiles: dict[str, dict] = {}
-        if hasattr(self.browser_client, "start_all_profiles"):
-            ready_profiles = self.browser_client.start_all_profiles(
-                list(pid_to_acct.keys())
-            )
-            logger.info(
-                f"{len(ready_profiles)}/{len(pid_to_acct)} profiles ready — "
-                f"attaching Selenium..."
-            )
-            # Cache ready port info so profile_manager.start_browser()
-            # finds them via is_profile_running() without extra API calls.
-
-        # Phase 2 — Attach Selenium and verify login, in parallel.
-        # This phase does NOT call GoLogin's API (Selenium connects
-        # directly to the debug port), so full concurrency is safe.
-        setup_timeout = 300  # seconds
+        setup_timeout = 600  # seconds — hard cap on total account setup time
         active_accounts = []
-        pool = ThreadPoolExecutor(max_workers=len(accounts))
-
+        scheduler_started = False
+        pool = ThreadPoolExecutor(max_workers=min(len(accounts), 3))
         future_to_acct = {
             pool.submit(self.setup_account, acct): acct for acct in accounts
         }
@@ -632,6 +587,24 @@ class Application:
                     if future.result():
                         self.schedule_account(acct)
                         active_accounts.append(acct)
+
+                        # Start scheduler/queue as soon as the first account
+                        # succeeds — remaining accounts continue in background.
+                        if not scheduler_started:
+                            self.queue.start()
+                            self.job_manager.start()
+                            self.job_manager.add_health_check(
+                                dispatch_health_check, interval_minutes=5
+                            )
+                            self.job_manager.add_cta_check_job(
+                                dispatch_cta_check, interval_minutes=5
+                            )
+                            self._ready.set()
+                            scheduler_started = True
+                            logger.info(
+                                "Engine ready — first account active, "
+                                "remaining accounts setting up in background"
+                            )
                     else:
                         self._failed_accounts.append(acct)
                 except Exception as exc:
@@ -646,6 +619,8 @@ class Application:
                     self._failed_accounts.append(acct)
                     fut.cancel()
         finally:
+            # Give timed-out threads a grace period to finish cleanly,
+            # but don't block forever if they're stuck.
             pool.shutdown(wait=True, cancel_futures=True)
 
         if not active_accounts:
@@ -700,8 +675,6 @@ class Application:
     # ------------------------------------------------------------------
     def _health_check(self) -> None:
         # Run the full System Diagnoser on each health-check cycle.
-        # Log any warnings/errors so they appear in the automation log
-        # without the developer having to manually run --diagnose.
         try:
             from src.core.diagnoser import SystemDiagnoser
             diag = SystemDiagnoser(app=self, config=self.config, db=self.db)
@@ -725,7 +698,7 @@ class Application:
         except Exception as exc:
             logger.warning(f"System Diagnoser failed: {exc}")
 
-        # Per-browser liveness check (original logic)
+        # Per-browser liveness check
         for name, auto in list(self._automations.items()):
             try:
                 auto.driver.title  # quick check that the browser is alive
