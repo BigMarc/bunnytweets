@@ -65,6 +65,37 @@
     </div>
 </div>
 
+<!-- Bulk Import -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card border-secondary">
+            <div class="card-header"><i class="bi bi-upload me-2"></i>Bulk Import Titles</div>
+            <div class="card-body">
+                <form method="POST" action="/generator/title/bulk-add">
+                    <div class="row g-3">
+                        <div class="col-md-9">
+                            <label class="form-label">Titles (one per line)</label>
+                            <textarea class="form-control" name="texts" rows="5"
+                                      placeholder="Paste titles here, one per line&#10;Each line becomes a separate title&#10;Empty lines are skipped" required></textarea>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Category</label>
+                            <select class="form-select" name="category_id" required>
+                                {% for cat in categories %}
+                                <option value="{{ cat.id }}">{{ cat.name }} ({{ cat.count }})</option>
+                                {% endfor %}
+                            </select>
+                            <button type="submit" class="btn btn-outline-primary mt-2 w-100">
+                                <i class="bi bi-upload me-1"></i>Import All
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Global Target Accounts -->
 <div class="row mb-4">
     <div class="col-12">

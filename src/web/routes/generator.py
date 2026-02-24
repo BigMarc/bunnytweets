@@ -83,6 +83,30 @@ def add_title():
     return redirect(url_for("generator.index"))
 
 
+@bp.route("/title/bulk-add", methods=["POST"])
+def bulk_add_titles():
+    state = current_app.config["APP_STATE"]
+    raw = request.form.get("texts", "").strip()
+    category_id = request.form.get("category_id", "")
+
+    if not raw:
+        flash("Please paste at least one title.", "danger")
+        return redirect(url_for("generator.index"))
+
+    if not category_id:
+        flash("Please select a category.", "danger")
+        return redirect(url_for("generator.index"))
+
+    lines = [line for line in raw.splitlines() if line.strip()]
+    if not lines:
+        flash("No valid titles found in input.", "danger")
+        return redirect(url_for("generator.index"))
+
+    added = state.db.bulk_add_titles(lines, int(category_id))
+    flash(f"{added} title(s) imported!", "success")
+    return redirect(url_for("generator.index"))
+
+
 @bp.route("/title/<int:title_id>/delete", methods=["POST"])
 def delete_title(title_id):
     state = current_app.config["APP_STATE"]
