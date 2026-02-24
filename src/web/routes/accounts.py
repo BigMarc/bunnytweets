@@ -37,13 +37,15 @@ def _get_form_context(state, acct=None):
 
 
 def _get_accounts_data(state):
-    """Load raw accounts dict from config."""
+    """Load raw accounts dict from config (re-reads YAML from disk)."""
+    state.reload_config()
     return {"accounts": list(state.config.accounts)}
 
 
 @bp.route("/")
 def index():
     state = current_app.config["APP_STATE"]
+    state.reload_config()
     accounts = state.config.accounts
     account_info = []
     for acct in accounts:
@@ -219,6 +221,7 @@ def delete_reply_template(name, tpl_id):
 
 
 def _find_account(state, name):
+    state.reload_config()
     for acct in state.config.accounts:
         if acct.get("name") == name:
             return acct
