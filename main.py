@@ -477,24 +477,34 @@ class Application:
             )
 
         # Set up each account (parallel – browser starts are I/O-bound)
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
 
+        setup_timeout = 180  # seconds — hard cap on total account setup time
         active_accounts = []
         with ThreadPoolExecutor(max_workers=min(len(accounts), 5)) as pool:
             future_to_acct = {
                 pool.submit(self.setup_account, acct): acct for acct in accounts
             }
-            for future in as_completed(future_to_acct):
-                acct = future_to_acct[future]
-                try:
-                    if future.result():
-                        self.schedule_account(acct)
-                        active_accounts.append(acct)
-                    else:
+            try:
+                for future in as_completed(future_to_acct, timeout=setup_timeout):
+                    acct = future_to_acct[future]
+                    try:
+                        if future.result():
+                            self.schedule_account(acct)
+                            active_accounts.append(acct)
+                        else:
+                            self._failed_accounts.append(acct)
+                    except Exception as exc:
+                        logger.error(f"[{acct['name']}] Setup failed: {exc}")
                         self._failed_accounts.append(acct)
-                except Exception as exc:
-                    logger.error(f"[{acct['name']}] Setup failed: {exc}")
-                    self._failed_accounts.append(acct)
+            except FuturesTimeout:
+                for fut, acct in future_to_acct.items():
+                    if not fut.done():
+                        logger.warning(
+                            f"[{acct['name']}] Setup timed out after {setup_timeout}s"
+                        )
+                        self._failed_accounts.append(acct)
+                        fut.cancel()
 
         if not active_accounts:
             self.shutdown()

@@ -49,8 +49,25 @@ class ProfileManager:
                     pass
                 del self._drivers[profile_id]
 
-        headless = self.browser_settings.get("headless", False)
-        result = self.client.start_profile(profile_id, headless=headless)
+        # Fast path: if the profile is already running in the browser
+        # provider, grab its debug port without restarting / syncing.
+        result = None
+        if hasattr(self.client, "is_profile_running"):
+            try:
+                running_info = self.client.is_profile_running(profile_id)
+                if running_info and isinstance(running_info, dict) and running_info.get("port"):
+                    result = running_info
+                    logger.info(
+                        f"Profile {profile_id} already running – "
+                        f"attaching to port {result['port']}"
+                    )
+            except Exception:
+                pass
+
+        # Normal path: ask the provider to start (or return running port)
+        if result is None:
+            headless = self.browser_settings.get("headless", False)
+            result = self.client.start_profile(profile_id, headless=headless)
 
         port = result.get("port")
         ws_endpoint = result.get("ws_endpoint")
@@ -61,7 +78,7 @@ class ProfileManager:
             )
 
         logger.info(
-            f"Profile {profile_id} started – debug port={port}, ws={ws_endpoint}"
+            f"Profile {profile_id} ready – debug port={port}, ws={ws_endpoint}"
         )
 
         # Resolve a ChromeDriver matching the browser's Chrome version.
