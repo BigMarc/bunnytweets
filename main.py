@@ -436,8 +436,7 @@ class Application:
     def run(self) -> None:
         accounts = self.config.enabled_accounts
         if not accounts:
-            logger.error("No enabled accounts found in configuration")
-            sys.exit(1)
+            raise RuntimeError("No enabled accounts found in configuration")
 
         logger.info(f"Starting BunnyTweets with {len(accounts)} enabled account(s)")
 
@@ -445,11 +444,10 @@ class Application:
         logger.info(f"Browser provider: {self.provider_name}")
         if self.browser_client.api_token:
             if not self.browser_client.authenticate():
-                logger.error(
+                raise RuntimeError(
                     f"{self.provider_name} authentication failed. "
                     "Check your API token in settings.yaml or the corresponding env var."
                 )
-                sys.exit(1)
         else:
             logger.warning(
                 f"No {self.provider_name} API token configured. "
@@ -477,9 +475,8 @@ class Application:
                     self._failed_accounts.append(acct)
 
         if not active_accounts:
-            logger.error("No accounts could be initialised. Exiting.")
             self.shutdown()
-            sys.exit(1)
+            raise RuntimeError("No accounts could be initialised")
 
         logger.info(f"{len(active_accounts)} account(s) active")
 
@@ -777,7 +774,11 @@ def main():
     else:
         # Handle SIGTERM for Docker graceful shutdown
         signal.signal(signal.SIGTERM, lambda *_: app.shutdown())
-        app.run()
+        try:
+            app.run()
+        except RuntimeError as exc:
+            logger.error(str(exc))
+            sys.exit(1)
 
 
 if __name__ == "__main__":

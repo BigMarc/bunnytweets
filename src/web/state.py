@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 import threading
 import time
 from pathlib import Path
@@ -69,35 +70,59 @@ class AppState:
                 # Watch for the Application._ready event so we only mark
                 # "running" after accounts are set up and the scheduler starts.
                 def _watch_ready():
-                    if app._ready.wait(timeout=300):
-                        with self._lock:
-                            if self._engine_status == "starting":
+                    ready = app._ready.wait(timeout=300)
+                    with self._lock:
+                        if self._engine_status == "starting":
+                            if ready:
                                 self._engine_status = "running"
+                            else:
+                                # Timed out waiting — startup stalled
+                                self._engine_status = "stopped"
+                                self._startup_error = "Engine startup timed out (300s)"
 
                 watcher = threading.Thread(
                     target=_watch_ready, daemon=True, name="engine-ready-watcher"
                 )
                 watcher.start()
 
-                # This blocks until shutdown
+                # This blocks until shutdown (or raises RuntimeError on failure)
                 app.run()
-            except Exception as e:
+            except RuntimeError as e:
                 logger.error(f"Engine startup failed: {e}")
+                with self._lock:
+                    self._startup_error = str(e)
+                    self._engine_status = "stopped"
+            except Exception as e:
+                logger.error(f"Engine error: {e}")
                 with self._lock:
                     self._startup_error = str(e)
             finally:
                 with self._lock:
                     self._application = None
-                    self._engine_status = "stopped"
+                    if self._engine_status not in ("stopped",):
+                        self._engine_status = "stopped"
 
         self._engine_thread = threading.Thread(
             target=_run, daemon=True, name="automation-engine"
         )
         self._engine_thread.start()
 
+        # Ensure the engine shuts down cleanly when the process exits (Ctrl+C)
+        atexit.register(self._atexit_stop)
+
         # Wait briefly for startup or failure
         time.sleep(1)
         return True, "Engine starting..."
+
+    def _atexit_stop(self) -> None:
+        """Called by atexit — stop browser profiles and scheduler on process exit."""
+        with self._lock:
+            app = self._application
+        if app is not None:
+            try:
+                app.shutdown()
+            except Exception:
+                pass
 
     def stop_engine(self) -> tuple[bool, str]:
         with self._lock:
