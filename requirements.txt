@@ -12,7 +12,7 @@ google-auth-oauthlib==1.2.0
 apscheduler==3.10.4
 
 # Database
-sqlalchemy==2.0.23
+sqlalchemy>=2.0.46
 alembic==1.13.0
 
 # Configuration & Utils
