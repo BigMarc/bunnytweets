@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import threading
-import time
 from urllib.parse import urlparse
 
 import requests
@@ -103,167 +102,54 @@ class GoLoginClient:
     def start_profile(self, profile_id: str, headless: bool = False) -> dict:
         """Start a browser profile and wait for its debug port.
 
-        Returns a normalised dict ``{"port": int, "ws_endpoint": str}``
-        so ProfileManager can connect Selenium.
+        Uses ``sync=True`` so GoLogin blocks until the browser is fully
+        ready and returns the ``wsUrl`` in a single response — no polling.
 
-        All GoLogin local API calls go through ``_post_local`` which
-        serializes them to avoid overloading the single-threaded server.
+        Returns a normalised dict ``{"port": int, "ws_endpoint": str}``
+        so ProfileManager can connect via CDP.
         """
         logger.info(f"Starting GoLogin profile {profile_id} (headless={headless})")
         url = f"{self.base_url}/browser/start-profile"
-        json_data: dict = {"profileId": profile_id, "sync": False}
+        json_data: dict = {"profileId": profile_id, "sync": True}
 
-        # Step 1 — send the start command (serialized).
-        try:
-            resp = self._post_local(url, json_data)
-            if not resp.ok:
-                logger.error(
-                    f"POST start-profile failed ({resp.status_code}): {resp.text}"
-                )
-            resp.raise_for_status()
-            data = resp.json()
+        resp = self._post_local(url, json_data, timeout=120)
+        if not resp.ok:
+            logger.error(f"POST start-profile failed ({resp.status_code}): {resp.text}")
+        resp.raise_for_status()
+        data = resp.json()
 
-            # Profile may already be running — check for wsUrl.
-            if data.get("status") == "success":
-                ws_url = data.get("wsUrl", "")
-                if ws_url:
-                    result = self._parse_ws_url(ws_url)
-                    if result.get("port"):
-                        logger.info(
-                            f"Profile {profile_id} already running "
-                            f"(port={result['port']})"
-                        )
-                        return result
-        except (requests.exceptions.ReadTimeout,
-                requests.exceptions.ConnectionError) as exc:
-            logger.warning(
-                f"Start command for {profile_id} timed out: {exc}. "
-                f"Profile may still be starting..."
+        ws_url = data.get("wsUrl", "")
+        if not ws_url:
+            raise RuntimeError(
+                f"GoLogin start-profile returned no wsUrl for {profile_id}. "
+                f"Response: {data}"
             )
 
-        # Step 2 — poll until wsUrl is available (serialized per call).
-        max_polls = 15
-        poll_interval = 5  # seconds
-        initial_delay = 3
-
-        logger.info(
-            f"Polling for profile {profile_id} readiness "
-            f"(every {poll_interval}s, up to ~{initial_delay + max_polls * poll_interval}s)..."
-        )
-        time.sleep(initial_delay)
-
-        for poll in range(1, max_polls + 1):
-            result = self.is_profile_running(profile_id)
-            if result and result.get("port"):
-                logger.info(
-                    f"Profile {profile_id} ready "
-                    f"(poll {poll}/{max_polls}, port={result['port']})"
-                )
-                return result
-
-            logger.debug(
-                f"Profile {profile_id} not ready yet "
-                f"(poll {poll}/{max_polls})"
-            )
-            if poll < max_polls:
-                time.sleep(poll_interval)
-
-        raise RuntimeError(
-            f"GoLogin profile {profile_id} did not become ready after "
-            f"~{initial_delay + max_polls * poll_interval}s of polling"
-        )
+        result = self._parse_ws_url(ws_url)
+        logger.info(f"Profile {profile_id} ready (port={result.get('port')})")
+        return result
 
     def start_all_profiles(self, profile_ids: list[str]) -> dict[str, dict]:
-        """Start multiple profiles efficiently via serialized API calls.
+        """Start multiple profiles sequentially via ``sync=True`` calls.
 
-        Phase 1 — fire ``sync=False`` start commands one by one (each ~2-5s).
-                   All profiles begin opening in GoLogin simultaneously.
-        Phase 2 — poll each profile one by one for its debug port.
-                   Most profiles are already ready by the time we poll.
+        Each call blocks until the profile is ready — no polling phase
+        needed.  GoLogin's local API is single-threaded, so there is no
+        benefit to fire-and-forget anyway.
 
         Returns ``{profile_id: {"port": int, "ws_endpoint": str}}`` for
         profiles that started successfully.  Failed profiles are logged
         and omitted from the result.
         """
-        url = f"{self.base_url}/browser/start-profile"
         results: dict[str, dict] = {}
-        pending: list[str] = []
-
-        # Phase 1 — fire start commands, one at a time.
-        logger.info(f"Phase 1: Sending start commands for {len(profile_ids)} profiles...")
+        logger.info(f"Starting {len(profile_ids)} GoLogin profiles (sync=true)...")
         for pid in profile_ids:
-            json_data = {"profileId": pid, "sync": False}
             try:
-                resp = self._post_local(url, json_data)
-                if resp.ok:
-                    data = resp.json()
-                    ws_url = data.get("wsUrl", "")
-                    if data.get("status") == "success" and ws_url:
-                        result = self._parse_ws_url(ws_url)
-                        if result.get("port"):
-                            results[pid] = result
-                            logger.info(
-                                f"  {pid[:12]}... already running "
-                                f"(port={result['port']})"
-                            )
-                            continue
-                    pending.append(pid)
-                    logger.info(f"  {pid[:12]}... start command sent")
-                else:
-                    pending.append(pid)
-                    logger.warning(
-                        f"  {pid[:12]}... start returned {resp.status_code}"
-                    )
+                result = self.start_profile(pid)
+                results[pid] = result
             except Exception as exc:
-                pending.append(pid)
-                logger.warning(f"  {pid[:12]}... start failed: {exc}")
-
-        if not pending:
-            return results
-
-        # Phase 2 — poll pending profiles for readiness.
+                logger.error(f"Failed to start profile {pid}: {exc}")
         logger.info(
-            f"Phase 2: Waiting for {len(pending)} profiles to become ready..."
-        )
-        max_rounds = 15
-        poll_interval = 5  # seconds
-
-        time.sleep(5)  # initial grace period
-
-        for round_num in range(1, max_rounds + 1):
-            still_pending = []
-            for pid in pending:
-                info = self.is_profile_running(pid)
-                if info and info.get("port"):
-                    results[pid] = info
-                    logger.info(
-                        f"  {pid[:12]}... ready "
-                        f"(round {round_num}/{max_rounds}, "
-                        f"port={info['port']})"
-                    )
-                else:
-                    still_pending.append(pid)
-
-            pending = still_pending
-            if not pending:
-                break
-
-            logger.debug(
-                f"  {len(pending)} profiles still pending "
-                f"(round {round_num}/{max_rounds})"
-            )
-            if round_num < max_rounds:
-                time.sleep(poll_interval)
-
-        for pid in pending:
-            logger.error(
-                f"  {pid[:12]}... did NOT become ready after "
-                f"{max_rounds * poll_interval}s"
-            )
-
-        logger.info(
-            f"Profile startup complete: {len(results)} ready, "
-            f"{len(pending)} failed"
+            f"Profile startup complete: {len(results)}/{len(profile_ids)} ready"
         )
         return results
 
@@ -272,34 +158,12 @@ class GoLoginClient:
         parsed = urlparse(ws_url)
         return {"port": parsed.port, "ws_endpoint": parsed.path}
 
-    def is_profile_running(self, profile_id: str) -> dict | None:
-        """Check whether a profile is already running in GoLogin.
-
-        Calls ``start-profile`` with ``sync=false`` (serialized through
-        the API lock).  Returns a normalised ``{"port": int, "ws_endpoint": str}``
-        dict if running, else ``None``.
-        """
-        try:
-            url = f"{self.base_url}/browser/start-profile"
-            resp = self._post_local(
-                url,
-                {"profileId": profile_id, "sync": False},
-                timeout=15,
-            )
-            if resp.ok:
-                data = resp.json()
-                ws_url = data.get("wsUrl", "")
-                if data.get("status") == "success" and ws_url:
-                    return self._parse_ws_url(ws_url)
-        except Exception:
-            pass
-        return None
-
     def stop_profile(self, profile_id: str) -> dict:
         """Stop a running browser profile.
 
         Endpoint: POST http://localhost:36912/browser/stop-profile
         Body: {"profileId": "<id>"}
+        Response: 204 No Content (empty body on success).
         """
         logger.info(f"Stopping GoLogin profile {profile_id}")
         url = f"{self.base_url}/browser/stop-profile"
@@ -307,7 +171,9 @@ class GoLoginClient:
         if not resp.ok:
             logger.error(f"POST stop-profile failed ({resp.status_code}): {resp.text}")
         resp.raise_for_status()
-        # GoLogin may return an empty body on success
+        # stop-profile returns 204 No Content on success
+        if resp.status_code == 204 or not resp.content:
+            return {"status": "success"}
         try:
             return resp.json()
         except Exception:
