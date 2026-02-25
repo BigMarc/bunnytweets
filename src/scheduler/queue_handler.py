@@ -1,10 +1,23 @@
-"""Thread-safe task queue for asynchronous job execution."""
+"""Single-threaded task queue for synchronous job execution.
+
+Playwright's sync API is bound to the thread where ``sync_playwright()``
+was called.  **Any** Playwright call from a different thread raises
+``Error: Cannot switch to a different thread``.
+
+This module therefore provides a simple ``queue.Queue`` wrapper whose
+``process_next()`` method pops one task and executes it **synchronously**
+on the caller's thread (the main thread).  There are no worker threads,
+no ``ThreadPoolExecutor``, and no background draining loop.
+
+APScheduler and Flask routes **only** call ``submit()`` (which is
+thread-safe — ``queue.Queue.put`` is internally locked).  The main
+thread's ``run_forever()`` loop calls ``process_next()`` each iteration
+to actually execute the work.
+"""
 
 from __future__ import annotations
 
-import threading
 import time as _time
-from concurrent.futures import ThreadPoolExecutor, Future
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
@@ -37,147 +50,110 @@ class Task:
 
 
 class QueueHandler:
-    """Manages a thread pool + queue for account tasks.
+    """Single-threaded task queue.
 
-    Ensures only one task per account runs at a time (to avoid concurrent
-    Selenium operations on the same browser profile).
-
-    Supports retry with exponential backoff and account pausing after
-    max retries are exhausted.
+    * ``submit(task)`` — thread-safe enqueue (called from any thread).
+    * ``process_next()`` — dequeue and execute one task **synchronously**
+      on the calling thread.  Must be called from the main thread.
+    * One task per account at a time — if the popped task's account is
+      busy, the task is re-queued with a short delay.
     """
 
-    def __init__(self, max_workers: int = 5, error_handling: dict | None = None,
-                 db=None, notifier=None):
-        self.executor = ThreadPoolExecutor(max_workers=max_workers)
+    def __init__(self, error_handling: dict | None = None,
+                 db=None, notifier=None, **_kw):
         self._queue: Queue[Task] = Queue()
-        self._running: dict[str, Future] = {}
-        self._lock = threading.RLock()
-        self._stop_event = threading.Event()
-        self._task_done = threading.Condition(self._lock)
-        self._worker_thread: threading.Thread | None = None
         self._error_handling = error_handling or {}
         self._db = db
         self._notifier = notifier
         self._paused_accounts: dict[str, datetime] = {}
+        self._busy_accounts: set[str] = set()
 
         # Restore paused accounts from a previous run so they don't
         # accidentally resume when the process restarts.
         self._load_paused_accounts()
 
-    def _load_paused_accounts(self) -> None:
-        """Restore paused accounts from the database.
-
-        If an account was paused before the process stopped, re-populate
-        ``_paused_accounts`` so the pause is honoured after restart.  Accounts
-        whose pause window has already expired are cleared back to idle.
-        """
-        if not self._db:
-            return
-        try:
-            from src.core.database import AccountStatus
-
-            with self._db.session() as s:
-                paused = (
-                    s.query(AccountStatus)
-                    .filter(AccountStatus.status == "paused")
-                    .all()
-                )
-                pause_minutes = self._error_handling.get("pause_duration_minutes", 60)
-                for acct in paused:
-                    # Estimate unpause time from the error_message or fall back
-                    # to pause_duration_minutes from now (safe default).
-                    unpause_at = datetime.utcnow() + timedelta(minutes=pause_minutes)
-                    self._paused_accounts[acct.account_name] = unpause_at
-                    logger.info(
-                        f"[{acct.account_name}] Restored paused state from DB "
-                        f"(will unpause around {unpause_at.strftime('%H:%M')})"
-                    )
-        except Exception as exc:
-            logger.warning(f"Could not load paused accounts from DB: {exc}")
-
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
     def submit(self, task: Task) -> None:
-        """Add a task to the queue."""
+        """Add a task to the queue (thread-safe)."""
         self._queue.put(task)
         logger.debug(
             f"Queued task: {task.task_type} for {task.account_name} "
-            f"(queue size: {self._queue.qsize()})"
+            f"(queue size: ~{self._queue.qsize()})"
         )
 
+    def process_next(self) -> bool:
+        """Pop and execute one task synchronously.  Returns True if work was done.
+
+        Call this from the **main thread** inside the ``run_forever()`` loop.
+        """
+        try:
+            task = self._queue.get_nowait()
+        except Empty:
+            return False
+
+        # Skip paused accounts
+        if self._is_account_paused(task.account_name):
+            logger.debug(
+                f"Skipping task {task.task_type} for paused account {task.account_name}"
+            )
+            return False
+
+        # One task per account — re-queue if busy
+        if task.account_name in self._busy_accounts:
+            logger.debug(
+                f"Account {task.account_name} is busy — "
+                f"re-queuing {task.task_type} task"
+            )
+            self._queue.put(task)
+            return False
+
+        self._busy_accounts.add(task.account_name)
+        try:
+            self._run_task(task)
+        finally:
+            self._busy_accounts.discard(task.account_name)
+
+        return True
+
     def start(self) -> None:
-        """Start the background worker that drains the queue."""
-        self._stop_event.clear()
-        self._worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
-        self._worker_thread.start()
-        logger.info("Queue handler started")
+        """No-op for backwards compatibility.
+
+        The old QueueHandler spawned a background worker thread here.
+        The new single-threaded design doesn't need it — ``process_next()``
+        is called directly from the main loop.
+        """
+        logger.info("Queue handler ready (single-threaded mode)")
 
     def stop(self) -> None:
-        """Signal the worker to stop and wait for in-flight tasks."""
-        self._stop_event.set()
-        self.executor.shutdown(wait=True)
-        if self._worker_thread:
-            self._worker_thread.join(timeout=10)
+        """No-op for backwards compatibility."""
         logger.info("Queue handler stopped")
 
-    def _on_task_complete(self, account_name: str, future: Future) -> None:
-        """Callback fired when a Future finishes — signals the worker loop."""
-        with self._task_done:
-            self._running.pop(account_name, None)
-            self._task_done.notify()
+    # ------------------------------------------------------------------
+    # Task execution (runs on caller's thread = main thread)
+    # ------------------------------------------------------------------
+    def _run_task(self, task: Task) -> None:
+        task.status = TaskStatus.RUNNING
+        if self._db:
+            self._db.update_account_status(task.account_name, status="running")
 
-    def _worker_loop(self) -> None:
-        while not self._stop_event.is_set():
-            # Pull next task from queue
-            try:
-                task = self._queue.get(timeout=5)
-            except Empty:
-                continue
-
-            # Skip tasks for paused accounts
-            if self._is_account_paused(task.account_name):
-                logger.debug(
-                    f"Skipping task {task.task_type} for paused account {task.account_name}"
-                )
-                continue
-
-            with self._lock:
-                if task.account_name in self._running:
-                    logger.debug(
-                        f"Account {task.account_name} is busy — "
-                        f"re-queuing {task.task_type} task"
-                    )
-                    # Delay re-queue to avoid tight spin
-                    threading.Thread(
-                        target=self._delayed_requeue, args=(task, 0.5),
-                        daemon=True,
-                    ).start()
-                    continue
-
-                task.status = TaskStatus.RUNNING
-                future = self.executor.submit(self._run_task, task)
-                self._running[task.account_name] = future
-                future.add_done_callback(
-                    lambda f, name=task.account_name: self._on_task_complete(name, f)
-                )
-
-    def _run_task(self, task: Task) -> Any:
+        start = _time.monotonic()
         try:
-            start = _time.monotonic()
-            # Enforce per-task timeout using a one-off thread pool
-            from concurrent.futures import ThreadPoolExecutor as _TPE, TimeoutError as _TE
-            with _TPE(max_workers=1) as _pool:
-                _fut = _pool.submit(task.callback, *task.args, **task.kwargs)
-                try:
-                    result = _fut.result(timeout=task.timeout_seconds)
-                except _TE:
-                    raise TimeoutError(
-                        f"Task {task.task_type} for {task.account_name} "
-                        f"timed out after {task.timeout_seconds}s"
-                    )
+            result = task.callback(*task.args, **task.kwargs)
             duration = _time.monotonic() - start
+
+            # Enforce timeout via wall-clock check (the callback itself
+            # may honour internal timeouts, but this is a safety net).
+            if duration > task.timeout_seconds:
+                raise TimeoutError(
+                    f"Task {task.task_type} for {task.account_name} "
+                    f"took {duration:.0f}s (limit {task.timeout_seconds}s)"
+                )
+
             task.status = TaskStatus.COMPLETED
             task.result = result
-            # Callbacks return True on success, False on logical failure
-            # (e.g. post failed, no tweets to retweet). Log accurately.
+
             if result:
                 self._log_task(task, "success", duration=duration)
             else:
@@ -186,7 +162,10 @@ class QueueHandler:
                     f"returned failure ({duration:.1f}s)"
                 )
                 self._log_task(task, "failed", duration=duration)
-            return result
+
+            if self._db:
+                self._db.update_account_status(task.account_name, status="idle")
+
         except Exception as exc:
             duration = _time.monotonic() - start
             task.error = exc
@@ -207,20 +186,41 @@ class QueueHandler:
                 )
                 self._log_task(task, "failed", duration=duration,
                                error_message=str(exc))
-                threading.Thread(
-                    target=self._delayed_requeue, args=(task, delay), daemon=True
-                ).start()
-                return None
+                # Re-queue immediately — the main loop's sleep provides
+                # the effective backoff.  For longer delays the task will
+                # simply sit in the queue until picked up again.
+                self._queue.put(task)
             else:
                 task.status = TaskStatus.FAILED
                 self._log_task(task, "failed", duration=duration,
                                error_message=str(exc))
                 self._pause_account(task.account_name, str(exc))
-                raise
 
-    def _delayed_requeue(self, task: Task, delay: float) -> None:
-        _time.sleep(delay)
-        self._queue.put(task)
+    # ------------------------------------------------------------------
+    # Pause / unpause
+    # ------------------------------------------------------------------
+    def _load_paused_accounts(self) -> None:
+        if not self._db:
+            return
+        try:
+            from src.core.database import AccountStatus
+
+            with self._db.session() as s:
+                paused = (
+                    s.query(AccountStatus)
+                    .filter(AccountStatus.status == "paused")
+                    .all()
+                )
+                pause_minutes = self._error_handling.get("pause_duration_minutes", 60)
+                for acct in paused:
+                    unpause_at = datetime.utcnow() + timedelta(minutes=pause_minutes)
+                    self._paused_accounts[acct.account_name] = unpause_at
+                    logger.info(
+                        f"[{acct.account_name}] Restored paused state from DB "
+                        f"(will unpause around {unpause_at.strftime('%H:%M')})"
+                    )
+        except Exception as exc:
+            logger.warning(f"Could not load paused accounts from DB: {exc}")
 
     def _pause_account(self, account_name: str, error: str) -> None:
         pause_minutes = self._error_handling.get("pause_duration_minutes", 60)
@@ -263,6 +263,9 @@ class QueueHandler:
             return False
         return True
 
+    # ------------------------------------------------------------------
+    # Logging
+    # ------------------------------------------------------------------
     def _log_task(self, task: Task, status: str, duration: float = 0,
                   error_message: str | None = None) -> None:
         if not self._db:
@@ -278,11 +281,13 @@ class QueueHandler:
         except Exception as exc:
             logger.warning(f"Failed to log task: {exc}")
 
+    # ------------------------------------------------------------------
+    # Properties (used by Flask API routes for status display)
+    # ------------------------------------------------------------------
     @property
     def queue_size(self) -> int:
         return self._queue.qsize()
 
     @property
     def active_tasks(self) -> int:
-        with self._lock:
-            return len(self._running)
+        return len(self._busy_accounts)

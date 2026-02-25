@@ -38,6 +38,7 @@ class ConfigLoader:
             create_empty=True,
         )
         self._apply_env_overrides()
+        self._validate_unique_profile_ids()
 
     # ------------------------------------------------------------------
     @staticmethod
@@ -102,6 +103,51 @@ class ConfigLoader:
         creds = os.getenv("GOOGLE_CREDENTIALS_FILE")
         if creds:
             self.settings.setdefault("google_drive", {})["credentials_file"] = creds
+
+    def _validate_unique_profile_ids(self) -> None:
+        """Ensure all GoLogin / Dolphin Anty profile IDs are unique.
+
+        If two accounts share the same profile ID, the second one will
+        timeout during setup because the profile is already running for
+        the first.  Detect this at config-load time and fail fast with a
+        clear error message.
+        """
+        accounts = self.accounts_cfg.get("accounts", [])
+        if not accounts:
+            return
+
+        # Map: profile_id → list of account names
+        seen: dict[str, list[str]] = {}
+        for acct in accounts:
+            name = acct.get("name", "(unnamed)")
+            if not acct.get("enabled", False):
+                continue
+            platform = acct.get("platform", "twitter")
+            platform_cfg = acct.get(platform, acct.get("twitter", {}))
+            pid = (
+                platform_cfg.get("profile_id")
+                or platform_cfg.get("dolphin_profile_id")
+                or ""
+            )
+            if not pid:
+                continue
+            seen.setdefault(pid, []).append(name)
+
+        duplicates = {pid: names for pid, names in seen.items() if len(names) > 1}
+        if duplicates:
+            lines = []
+            for pid, names in duplicates.items():
+                names_str = "' and '".join(names)
+                lines.append(
+                    f"  Accounts '{names_str}' both use profile '{pid}'"
+                )
+            detail = "\n".join(lines)
+            raise RuntimeError(
+                "FATAL: Duplicate GoLogin profile IDs detected!\n"
+                f"{detail}\n"
+                "Each account MUST have a unique GoLogin profile. "
+                "Fix config/accounts.yaml and restart."
+            )
 
     # ------------------------------------------------------------------
     # Convenience accessors

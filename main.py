@@ -43,7 +43,8 @@ def dispatch_job(account_name: str, task_type: str) -> None:
     """Module-level callback that APScheduler can serialise to the job store.
 
     Looks up the correct component from the live Application instance and
-    enqueues the task through the normal queue.
+    enqueues the task through the normal queue.  The task is **not** executed
+    here — it will be picked up by the main thread's ``run_forever()`` loop.
     """
     app = _app_ref
     if app is None:
@@ -75,21 +76,26 @@ def dispatch_job(account_name: str, task_type: str) -> None:
 
 
 def dispatch_health_check() -> None:
-    """Module-level health-check callback for APScheduler persistence."""
+    """APScheduler callback — enqueues a health-check task for the main thread.
+
+    IMPORTANT: This runs on APScheduler's background thread.  It must NOT
+    touch Selenium/Playwright directly.  It only sets a flag that the main
+    loop checks.
+    """
     if _app_ref is not None:
-        _app_ref._health_check()
+        _app_ref._health_check_due = True
 
 
 def dispatch_cta_check() -> None:
-    """Module-level CTA-check callback for APScheduler persistence."""
+    """APScheduler callback — flags a CTA check for the main thread."""
     if _app_ref is not None:
-        _app_ref._check_cta_pending()
+        _app_ref._cta_check_due = True
 
 
 def dispatch_setup_retry() -> None:
-    """Module-level callback to retry failed account setups."""
+    """APScheduler callback — flags a setup retry for the main thread."""
     if _app_ref is not None:
-        _app_ref._retry_failed_accounts()
+        _app_ref._setup_retry_due = True
 
 
 class Application:
@@ -189,6 +195,13 @@ class Application:
         self._shutdown_lock = threading.Lock()
         self._shutdown_complete = False
         self._ready = threading.Event()
+
+        # Flags set by APScheduler callbacks (from background threads).
+        # The main loop checks these and runs the actual work on the
+        # main thread where Selenium/Playwright is safe.
+        self._health_check_due = False
+        self._cta_check_due = False
+        self._setup_retry_due = False
 
         global _app_ref
         _app_ref = self
@@ -493,7 +506,11 @@ class Application:
         self.queue.submit(task)
 
     def _check_cta_pending(self) -> None:
-        """Check all accounts for pending CTA comments (posted >55 min ago)."""
+        """Check all accounts for pending CTA comments (posted >55 min ago).
+
+        MUST be called from the main thread (accesses Selenium indirectly
+        through the enqueued task callback).
+        """
         for name, poster in list(self._posters.items()):
             if not hasattr(poster, "run_cta_comment"):
                 continue
@@ -510,7 +527,10 @@ class Application:
             self._enqueue_task(name, "cta_comment", poster.run_cta_comment)
 
     def _retry_failed_accounts(self) -> None:
-        """Periodically retry accounts that failed initial setup."""
+        """Periodically retry accounts that failed initial setup.
+
+        MUST be called from the main thread (starts browsers / Selenium).
+        """
         still_failed = []
         for acct in self._failed_accounts:
             name = acct["name"]
@@ -569,65 +589,39 @@ class Application:
         # reset transient account statuses from previous (possibly crashed) run.
         self._preflight_cleanup(accounts)
 
-        # Set up each account — stagger browser starts so GoLogin's local
-        # API isn't overwhelmed (max 3 concurrent profile launches).
-        from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
-
-        setup_timeout = 600  # seconds — hard cap on total account setup time
+        # Set up each account SEQUENTIALLY on the main thread.
+        # Selenium/Playwright drivers are bound to this thread.
         active_accounts = []
-        scheduler_started = False
-        pool = ThreadPoolExecutor(max_workers=min(len(accounts), 3))
-        future_to_acct = {
-            pool.submit(self.setup_account, acct): acct for acct in accounts
-        }
-        try:
-            for future in as_completed(future_to_acct, timeout=setup_timeout):
-                acct = future_to_acct[future]
-                try:
-                    if future.result():
-                        self.schedule_account(acct)
-                        active_accounts.append(acct)
-
-                        # Start scheduler/queue as soon as the first account
-                        # succeeds — remaining accounts continue in background.
-                        if not scheduler_started:
-                            self.queue.start()
-                            self.job_manager.start()
-                            self.job_manager.add_health_check(
-                                dispatch_health_check, interval_minutes=5
-                            )
-                            self.job_manager.add_cta_check_job(
-                                dispatch_cta_check, interval_minutes=5
-                            )
-                            self._ready.set()
-                            scheduler_started = True
-                            logger.info(
-                                "Engine ready — first account active, "
-                                "remaining accounts setting up in background"
-                            )
-                    else:
-                        self._failed_accounts.append(acct)
-                except Exception as exc:
-                    logger.error(f"[{acct['name']}] Setup failed: {exc}")
+        for acct in accounts:
+            try:
+                if self.setup_account(acct):
+                    self.schedule_account(acct)
+                    active_accounts.append(acct)
+                else:
                     self._failed_accounts.append(acct)
-        except FuturesTimeout:
-            for fut, acct in future_to_acct.items():
-                if not fut.done():
-                    logger.warning(
-                        f"[{acct['name']}] Setup timed out after {setup_timeout}s"
-                    )
-                    self._failed_accounts.append(acct)
-                    fut.cancel()
-        finally:
-            # Give timed-out threads a grace period to finish cleanly,
-            # but don't block forever if they're stuck.
-            pool.shutdown(wait=True, cancel_futures=True)
+            except Exception as exc:
+                logger.error(f"[{acct['name']}] Setup failed: {exc}")
+                self._failed_accounts.append(acct)
 
         if not active_accounts:
             self.shutdown()
             raise RuntimeError("No accounts could be initialised")
 
         logger.info(f"{len(active_accounts)} account(s) active, {len(self._failed_accounts)} failed")
+
+        # Start scheduler (APScheduler runs on a background thread, but
+        # its job callbacks ONLY set flags / enqueue tasks — they never
+        # touch Selenium directly).
+        self.queue.start()
+        self.job_manager.start()
+        self.job_manager.add_health_check(
+            dispatch_health_check, interval_minutes=5
+        )
+        self.job_manager.add_cta_check_job(
+            dispatch_cta_check, interval_minutes=5
+        )
+        self._ready.set()
+        logger.info("Engine ready — entering main loop")
 
         # Retry failed account setups every 5 min (up to max_setup_retries)
         if self._failed_accounts:
@@ -646,14 +640,71 @@ class Application:
 
         self._print_dashboard()
 
-        # Block main thread
+        # ---- MAIN LOOP (runs on the main thread) ----
+        # ALL Selenium/Playwright work happens here: task execution,
+        # health checks, recovery, setup retries.  APScheduler only
+        # sets flags; Flask only enqueues tasks.
         try:
-            while not self._shutdown:
-                time.sleep(1)
+            self._run_forever()
         except KeyboardInterrupt:
             logger.info("Interrupted by user")
         finally:
             self.shutdown()
+
+    def _run_forever(self) -> None:
+        """Single-threaded main loop.
+
+        Playwright/Selenium sync API is bound to the thread that created
+        the driver.  ALL browser operations MUST happen on this thread.
+
+        APScheduler jobs only set ``_*_due`` flags or call
+        ``queue.submit()``.  Flask routes only call ``queue.submit()``.
+        This loop is the ONLY place that actually executes browser work.
+        """
+        last_health_ts = time.monotonic()
+
+        while not self._shutdown:
+            did_work = False
+
+            # 1. Process one queued task (runs on main thread = Selenium safe)
+            try:
+                if self.queue.process_next():
+                    did_work = True
+            except Exception as exc:
+                logger.error(f"Task execution error: {exc}")
+
+            # 2. Health check (flagged by APScheduler, executed here)
+            if self._health_check_due:
+                self._health_check_due = False
+                last_health_ts = time.monotonic()
+                try:
+                    self._health_check()
+                except Exception as exc:
+                    logger.error(f"Health check error: {exc}")
+
+            # 3. CTA comment check (flagged by APScheduler, executed here)
+            if self._cta_check_due:
+                self._cta_check_due = False
+                try:
+                    self._check_cta_pending()
+                except Exception as exc:
+                    logger.error(f"CTA check error: {exc}")
+
+            # 4. Setup retry for failed accounts (flagged by APScheduler)
+            if self._setup_retry_due:
+                self._setup_retry_due = False
+                try:
+                    self._retry_failed_accounts()
+                except Exception as exc:
+                    logger.error(f"Setup retry error: {exc}")
+
+            # 5. Brief sleep to prevent CPU spin
+            if not did_work:
+                time.sleep(0.5)
+            else:
+                # Yield briefly even when busy so APScheduler's background
+                # thread can fire and set flags.
+                time.sleep(0.05)
 
     # ------------------------------------------------------------------
     # Shutdown
@@ -671,7 +722,7 @@ class Application:
         logger.info("Shutdown complete")
 
     # ------------------------------------------------------------------
-    # Health check
+    # Health check (runs on main thread — safe to touch Selenium)
     # ------------------------------------------------------------------
     def _health_check(self) -> None:
         # Run the full System Diagnoser on each health-check cycle.
@@ -714,7 +765,10 @@ class Application:
                 self._try_recover_browser(name)
 
     def _try_recover_browser(self, name: str) -> None:
-        """Attempt to restart a crashed browser profile and re-wire components."""
+        """Attempt to restart a crashed browser profile and re-wire components.
+
+        MUST be called from the main thread (creates Selenium driver).
+        """
         acct = None
         for a in self.config.enabled_accounts:
             if a.get("name") == name:
@@ -913,7 +967,9 @@ def main():
         desktop_main()
         return
 
-    # Web dashboard — lightweight, no Selenium required
+    # ------------------------------------------------------------------
+    # Web-only mode: config + DB + Flask, NO GoLogin / Selenium / APScheduler
+    # ------------------------------------------------------------------
     if args.web:
         from src.core.config_loader import ConfigLoader
         from src.core.database import Database
@@ -924,14 +980,13 @@ def main():
         flask_app = create_app(config, db)
 
         if args.quiet:
-            # Auto-start engine when --web --quiet used together
-            state = flask_app.config["APP_STATE"]
-            state.start_engine()
             # Suppress Werkzeug per-request access logs (keep errors)
             import logging
             logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
-        print(f"\n  BunnyTweets Dashboard: http://localhost:{args.port}\n")
+        print(f"\n  BunnyTweets Dashboard: http://localhost:{args.port}")
+        print("  Web-only mode — no automation engine running")
+        print("  Use the Start Engine button to launch automation\n")
         flask_app.run(host="0.0.0.0", port=args.port, debug=False)
         return
 
@@ -948,6 +1003,9 @@ def main():
         print(report.render_text())
         return
 
+    # ------------------------------------------------------------------
+    # Full automation mode
+    # ------------------------------------------------------------------
     app = Application(quiet=args.quiet)
 
     if args.status:
