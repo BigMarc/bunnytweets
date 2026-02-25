@@ -136,8 +136,29 @@ class TwitterPoster:
             self._cleanup(local_path)
             return False
 
-        # Pick a title from the account's assigned categories
-        text = self._pick_title()
+        # Check for companion .txt file with matching stem
+        text = ""
+        stem = Path(chosen_meta["name"]).stem
+        companion_txt = next(
+            (f for f in all_files if f["name"].lower() == f"{stem.lower()}.txt"),
+            None,
+        )
+        if companion_txt:
+            try:
+                txt_path = self.monitor.download_file(self.account_name, companion_txt)
+                text = self.media_handler.read_text_content(txt_path)
+                txt_path.unlink(missing_ok=True)
+                if text:
+                    logger.info(
+                        f"[{self.account_name}] Using companion text from '{companion_txt['name']}'"
+                    )
+            except Exception as exc:
+                logger.warning(f"[{self.account_name}] Failed to read companion text: {exc}")
+                text = ""
+
+        # Fall back to title rotation if no companion text
+        if not text:
+            text = self._pick_title()
 
         logger.info(
             f"[{self.account_name}] Posting tweet with '{chosen_meta['name']}'"

@@ -498,7 +498,7 @@ class Application:
             if not hasattr(poster, "run_cta_comment"):
                 continue
             status = self.db.get_account_status(name)
-            if not status or not status.cta_pending:
+            if not status or not getattr(status, "cta_pending", 0):
                 continue
             # Only fire CTA if last post was at least 55 minutes ago
             if status.last_post:
