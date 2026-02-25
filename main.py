@@ -191,6 +191,10 @@ class Application:
         self._setup_retry_counts: dict[str, int] = {}
         self._max_setup_retries = 3
 
+        # Health-check strike system: track consecutive failures per account.
+        # Recovery only triggers after _MAX_HEALTH_STRIKES consecutive fails.
+        self._health_strikes: dict[str, int] = {}
+
         self._shutdown = False
         self._shutdown_lock = threading.Lock()
         self._shutdown_complete = False
@@ -724,6 +728,8 @@ class Application:
     # ------------------------------------------------------------------
     # Health check (runs on main thread — safe to touch Selenium)
     # ------------------------------------------------------------------
+    _MAX_HEALTH_STRIKES = 3
+
     def _health_check(self) -> None:
         # Run the full System Diagnoser on each health-check cycle.
         try:
@@ -749,25 +755,132 @@ class Application:
         except Exception as exc:
             logger.warning(f"System Diagnoser failed: {exc}")
 
-        # Per-browser liveness check
+        # Per-browser liveness check — uses a strike system to avoid
+        # killing healthy browsers on transient failures (slow page load,
+        # flaky Twitter, mid-navigation timeout).
         for name, auto in list(self._automations.items()):
-            try:
-                auto.driver.title  # quick check that the browser is alive
-            except Exception as exc:
-                error_str = str(exc).split("\n")[0]  # first line only
-                logger.error(f"[{name}] Browser health check failed: {error_str}")
-                self.db.update_account_status(
-                    name, status="error", error_message=f"Health check: {error_str}"
-                )
-                self.notifier.alert_health_check_failed(name, error_str)
+            alive = self._check_browser_alive(name, auto)
+            if alive:
+                # Reset strikes on success
+                if self._health_strikes.get(name, 0) > 0:
+                    logger.info(f"[{name}] Browser responding again — clearing {self._health_strikes[name]} strike(s)")
+                self._health_strikes[name] = 0
+                continue
 
-                # Attempt auto-recovery by restarting the browser
+            # Browser check failed — increment strike
+            strikes = self._health_strikes.get(name, 0) + 1
+            self._health_strikes[name] = strikes
+
+            if strikes < self._MAX_HEALTH_STRIKES:
+                logger.warning(
+                    f"[{name}] Browser health check failed "
+                    f"(strike {strikes}/{self._MAX_HEALTH_STRIKES}) — "
+                    f"will retry next cycle, NOT triggering recovery yet"
+                )
+                self.db.update_account_status(
+                    name, status="idle",
+                    error_message=f"Health check warning (strike {strikes}/{self._MAX_HEALTH_STRIKES})"
+                )
+            else:
+                # Third consecutive failure — trigger recovery
+                logger.error(
+                    f"[{name}] Browser health check failed "
+                    f"{strikes} consecutive times — triggering recovery"
+                )
+                self.db.update_account_status(
+                    name, status="error",
+                    error_message=f"Health check failed {strikes}x consecutively"
+                )
+                self.notifier.alert_health_check_failed(
+                    name, f"Failed {strikes} consecutive health checks"
+                )
+                self._health_strikes[name] = 0  # reset before recovery
                 self._try_recover_browser(name)
+
+    def _check_browser_alive(self, name: str, auto) -> bool:
+        """Test whether a browser session is still responsive.
+
+        Uses a generous timeout and multiple fallback checks before
+        declaring the browser dead.  Returns True if alive.
+        """
+        import requests as _requests
+
+        driver = auto.driver
+
+        # --- Primary check: driver.title with generous timeout ---
+        # Save and temporarily increase the page-load timeout so a slow
+        # Twitter page doesn't cause a false positive.  Selenium 4's
+        # Timeouts.page_load is in milliseconds; set_page_load_timeout()
+        # takes seconds.
+        saved_timeout_s = self.config.browser.get("page_load_timeout", 30)
+        try:
+            driver.set_page_load_timeout(15)
+        except Exception:
+            pass
+
+        try:
+            _ = driver.title
+            return True
+        except Exception as exc:
+            error_str = str(exc).split("\n")[0]
+            strikes = self._health_strikes.get(name, 0) + 1
+            logger.warning(
+                f"[{name}] driver.title failed "
+                f"(strike {strikes}/{self._MAX_HEALTH_STRIKES}): {error_str}"
+            )
+        finally:
+            try:
+                driver.set_page_load_timeout(saved_timeout_s)
+            except Exception:
+                pass
+
+        # --- Fallback check: CDP /json/version on the debug port ---
+        # If the browser process is still running, the CDP endpoint will
+        # respond even if the Selenium session is in a bad state.
+        # This avoids killing a browser that's just slow / mid-navigation.
+        acct = None
+        for a in self.config.enabled_accounts:
+            if a.get("name") == name:
+                acct = a
+                break
+        if acct:
+            platform_cfg = self._get_platform_cfg(acct)
+            # Try to get port from the driver's debugger address
+            port = None
+            try:
+                caps = driver.capabilities
+                debugger_addr = caps.get("goog:chromeOptions", {}).get("debuggerAddress", "")
+                if ":" in debugger_addr:
+                    port = int(debugger_addr.rsplit(":", 1)[1])
+            except Exception:
+                pass
+
+            if port:
+                try:
+                    resp = _requests.get(
+                        f"http://127.0.0.1:{port}/json/version",
+                        timeout=5,
+                    )
+                    if resp.ok:
+                        logger.info(
+                            f"[{name}] driver.title failed but CDP on port {port} "
+                            f"is still responding — browser process is alive"
+                        )
+                        return False  # still counts as a strike, but browser isn't dead-dead
+                except Exception:
+                    pass
+
+        return False
 
     def _try_recover_browser(self, name: str) -> None:
         """Attempt to restart a crashed browser profile and re-wire components.
 
         MUST be called from the main thread (creates Selenium driver).
+
+        This method is conservative: if reconnection fails, it marks the
+        account as "error" and moves on.  It does NOT re-stop the profile
+        on connect failure (to avoid killing a browser that might still be
+        usable from the GoLogin UI).
         """
         acct = None
         for a in self.config.enabled_accounts:
@@ -783,19 +896,30 @@ class Application:
         platform_label = platform_labels.get(self._get_platform(acct), "Twitter")
 
         logger.info(f"[{name}] Attempting auto-recovery — restarting browser...")
-        try:
-            try:
-                self.profile_manager.stop_browser(profile_id)
-            except Exception:
-                pass
 
-            time.sleep(3)
+        # Step 1: Try to cleanly stop the old browser
+        try:
+            self.profile_manager.stop_browser(profile_id)
+        except Exception as exc:
+            logger.debug(f"[{name}] Stop during recovery (non-fatal): {exc}")
+
+        time.sleep(3)
+
+        # Step 2: Try to start a fresh browser
+        try:
             driver = self.profile_manager.start_browser(profile_id)
         except Exception as exc:
-            logger.error(f"[{name}] Auto-recovery failed: {exc}")
+            # Connection failed — do NOT re-stop the profile.  Just mark
+            # as error and let the user retry from the dashboard.
+            logger.error(f"[{name}] Auto-recovery failed to start browser: {exc}")
+            self.db.update_account_status(
+                name, status="error",
+                error_message=f"Recovery failed: {str(exc)[:200]}"
+            )
             self.notifier.alert_generic(name, "Auto-Recovery Failed", str(exc))
             return
 
+        # Step 3: Re-wire automation components
         automation, poster, retweeter, simulator, replier = (
             self._create_platform_components(acct, driver)
         )
